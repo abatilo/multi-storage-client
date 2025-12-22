@@ -293,6 +293,7 @@ class StorageClient(AbstractStorageClient):
         attribute_filter_expression: Optional[str] = None,
         show_attributes: bool = False,
         follow_symlinks: bool = True,
+        patterns: Optional[PatternList] = None,
     ) -> Iterator[ObjectMetadata]:
         """
         List objects in the storage provider under the specified path.
@@ -311,6 +312,7 @@ class StorageClient(AbstractStorageClient):
         :param attribute_filter_expression: The attribute filter expression to apply to the result.
         :param show_attributes: Whether to return attributes in the result. WARNING: Depend on implementation, there might be performance impact if this set to ``True``.
         :param follow_symlinks: Whether to follow symbolic links. Only applicable for POSIX file storage providers. When ``False``, symlinks are skipped during listing.
+        :param patterns: PatternList for include/exclude filtering. If None, all files are included.
         :return: An iterator over ObjectMetadata for matching objects.
         :raises ValueError: If both ``path`` and ``prefix`` parameters are provided (both non-empty).
         """
@@ -324,6 +326,7 @@ class StorageClient(AbstractStorageClient):
             attribute_filter_expression,
             show_attributes,
             follow_symlinks,
+            patterns,
         )
 
     def is_file(self, path: str) -> bool:

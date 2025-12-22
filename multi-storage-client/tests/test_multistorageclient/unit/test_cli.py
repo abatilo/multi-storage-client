@@ -500,3 +500,65 @@ def test_ls_command_with_path_prefix():
         ObjectMetadata(key="dir1/dir2/file1.txt", type="file", last_modified=datetime.now(), content_length=100),
     )
     assert result == "dir1/dir2/file1.txt"
+
+
+def test_ls_command_with_include_exclude_patterns(run_cli):
+    """Test ls command with --include and --exclude pattern filtering."""
+    with tempfile.TemporaryDirectory() as test_dir:
+        # Create test files with different extensions in root directory only
+        test_files = [
+            Path(test_dir) / "file1.txt",
+            Path(test_dir) / "file2.txt",
+            Path(test_dir) / "file3.bin",
+            Path(test_dir) / "file4.log",
+            Path(test_dir) / "subdir" / "file5.txt",
+            Path(test_dir) / "subdir" / "file6.bin",
+        ]
+
+        for file_path in test_files:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(f"Content of {file_path.name}")
+
+        # Test --include: only .txt files
+        stdout, _ = run_cli("ls", "--recursive", "--include", "*.txt", test_dir)
+        assert "file1.txt" in stdout
+        assert "file2.txt" in stdout
+        assert "file3.bin" not in stdout
+        assert "file4.log" not in stdout
+        assert "file5.txt" in stdout
+        assert "file6.bin" not in stdout
+
+        # Test --exclude: exclude .bin files
+        stdout, _ = run_cli("ls", "--recursive", "--exclude", "*.bin", test_dir)
+        assert "file1.txt" in stdout
+        assert "file2.txt" in stdout
+        assert "file4.log" in stdout
+        assert "file3.bin" not in stdout
+        assert "file5.txt" in stdout
+        assert "file6.bin" not in stdout
+
+        # Test combined --exclude and --include: exclude all, then include .txt
+        stdout, _ = run_cli("ls", "--recursive", "--exclude", "*", "--include", "*.txt", test_dir)
+        assert "file1.txt" in stdout
+        assert "file2.txt" in stdout
+        assert "file3.bin" not in stdout
+        assert "file4.log" not in stdout
+        assert "file5.txt" in stdout
+        assert "file6.bin" not in stdout
+
+        # Test --include: *.png
+        stdout, _ = run_cli("ls", "--recursive", "--include", "*.png", test_dir)
+        assert "file1.txt" not in stdout
+        assert "file2.txt" not in stdout
+        assert "file3.bin" not in stdout
+        assert "file4.log" not in stdout
+        assert "file5.txt" not in stdout
+        assert "file6.bin" not in stdout
+
+        # Test single file
+        stdout, _ = run_cli("ls", "--recursive", "--include", "*.png", os.path.join(test_dir, "file1.txt"))
+        assert "file1.txt" not in stdout
+
+        stdout, _ = run_cli("ls", "--recursive", "--include", "*.txt", os.path.join(test_dir, "file1.txt"))
+        assert "file1.txt" in stdout
+        assert "file2.txt" not in stdout

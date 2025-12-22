@@ -29,7 +29,7 @@ from multistorageclient.file import ObjectFile
 from multistorageclient.providers.manifest_metadata import (
     DEFAULT_MANIFEST_BASE_DIR,
 )
-from multistorageclient.types import MSC_PROTOCOL, ObjectMetadata, SourceVersionCheckMode
+from multistorageclient.types import MSC_PROTOCOL, ObjectMetadata, PatternType, SourceVersionCheckMode
 from test_multistorageclient.unit.utils import config, tempdatastore
 
 MB = 1024 * 1024
@@ -171,6 +171,14 @@ def test_list(file_storage_config):
     assert len(results) == 1
     assert "testfile.bin" in results[0].key
     assert f"{MSC_PROTOCOL}default" not in results[0].key
+
+    # Test listing with include/exclude patterns
+    results = list(msc.list(f"{MSC_PROTOCOL}default{tempdir}", patterns=[(PatternType.INCLUDE, "*.bin")]))
+    assert len(results) == 1
+    assert "testfile.bin" in results[0].key
+
+    results = list(msc.list(f"{MSC_PROTOCOL}default{tempdir}", patterns=[(PatternType.INCLUDE, "*.txt")]))
+    assert len(results) == 0
 
 
 def test_write(file_storage_config):

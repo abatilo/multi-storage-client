@@ -424,6 +424,7 @@ def list(
     include_directories: bool = False,
     attribute_filter_expression: Optional[str] = None,
     show_attributes: bool = False,
+    patterns: Optional[PatternList] = None,
 ) -> Iterator[ObjectMetadata]:
     """
     Lists the contents of the specified URL prefix.
@@ -436,7 +437,7 @@ def list(
     :param end_at: The key to end at (i.e. inclusive). An object with this key doesn't have to exist.
     :param include_directories: Whether to include directories in the result. When True, directories are returned alongside objects.
     :param attribute_filter_expression: The attribute filter expression to apply to the result.
-
+    :param patterns: PatternList for include/exclude filtering. If None, all files are included.
     :return: An iterator of :py:class:`ObjectMetadata` objects representing the files (and optionally directories)
              accessible under the specified URL prefix. The returned keys will always be prefixed with msc://.
     """
@@ -449,6 +450,7 @@ def list(
         include_url_prefix=True,
         attribute_filter_expression=attribute_filter_expression,
         show_attributes=show_attributes,
+        patterns=patterns,
     )
 
 

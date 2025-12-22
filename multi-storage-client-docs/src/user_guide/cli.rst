@@ -41,7 +41,7 @@ The ``msc ls`` command lists files and directories in a storage service. It supp
   :caption: ls command help output
 
   $ msc help ls
-  usage: msc ls [--attribute-filter-expression ATTRIBUTE_FILTER_EXPRESSION] [--recursive] [--human-readable] [--summarize] [--debug] [--limit LIMIT] [--show-attributes] path
+  usage: msc ls [--attribute-filter-expression ATTRIBUTE_FILTER_EXPRESSION] [--recursive] [--human-readable] [--summarize] [--debug] [--limit LIMIT] [--show-attributes] [--include PATTERN] [--exclude PATTERN] path
 
   List files and directories at the specified path. Supports:
     1. Simple directory listings
@@ -49,6 +49,7 @@ The ``msc ls`` command lists files and directories in a storage service. It supp
     3. Human readable sizes
     4. Summary information
     5. Metadata attributes display
+    6. Include/exclude pattern filtering (AWS S3‑compatible globs)
 
   positional arguments:
     path                  The path to list (POSIX path or msc:// URL)
@@ -62,6 +63,8 @@ The ``msc ls`` command lists files and directories in a storage service. It supp
     --debug               Enable debug output
     --limit LIMIT         Limit the number of results to display
     --show-attributes     Display metadata attributes dictionary as an additional column
+    --include PATTERN     Include only files that match the specified pattern. Can be used multiple times. Supports AWS S3 compatible glob patterns (*, ?, [sequence], [!sequence]).
+    --exclude PATTERN     Exclude files that match the specified pattern. Can be used multiple times. Supports AWS S3 compatible glob patterns (*, ?, [sequence], [!sequence]).
 
 .. code-block:: text
   :caption: List files
@@ -87,6 +90,17 @@ The ``msc ls`` command lists files and directories in a storage service. It supp
   | 2025-04-15 00:24:15 | 2.0KB | subdir/config.json    |
   | 2025-04-15 00:25:30 | 1.0KB | subdir/logs/error.log |
   +---------------------+-------+-----------------------+
+
+.. code-block:: text
+  :caption: List files with pattern filtering
+
+  $ msc ls msc://profile/data/ --human-readable --include "*.pt" --include "*.bin"
+  +---------------------+-------+----------------+
+  | Last Modified       |  Size | Name           |
+  +---------------------+-------+----------------+
+  | 2025-04-15 00:22:40 | 5.0MB | data-5MB.bin   |
+  | 2025-04-15 00:23:36 | 1.5KB | model.pt       |
+  +---------------------+-------+----------------+
 
 .. note::
    The ``--attribute-filter-expression`` option allows you to filter files based on their metadata attributes.

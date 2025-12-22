@@ -591,6 +591,7 @@ class SingleStorageClient(AbstractStorageClient):
         attribute_filter_expression: Optional[str] = None,
         show_attributes: bool = False,
         follow_symlinks: bool = True,
+        patterns: Optional[PatternList] = None,
     ) -> Iterator[ObjectMetadata]:
         """
         List objects in the storage provider under the specified path.
@@ -609,6 +610,7 @@ class SingleStorageClient(AbstractStorageClient):
         :param attribute_filter_expression: The attribute filter expression to apply to the result.
         :param show_attributes: Whether to return attributes in the result. WARNING: Depend on implementation, there might be performance impact if this set to ``True``.
         :param follow_symlinks: Whether to follow symbolic links. Only applicable for POSIX file storage providers. When ``False``, symlinks are skipped during listing.
+        :param patterns: PatternList for include/exclude filtering. If None, all files are included.
         :return: An iterator over ObjectMetadata for matching objects.
         :raises ValueError: If both ``path`` and ``prefix`` parameters are provided (both non-empty).
         """
@@ -626,11 +628,17 @@ class SingleStorageClient(AbstractStorageClient):
                 f"Migration guide: Replace list(prefix={prefix!r}) with list(path={prefix!r})"
             )
 
+        # Apply patterns to the objects
+        pattern_matcher = PatternMatcher(patterns) if patterns else None
+
         # Use path if provided, otherwise fall back to prefix
         effective_path = path if path else prefix
 
         if effective_path:
             if self.is_file(effective_path):
+                if pattern_matcher and not pattern_matcher.should_include_file(effective_path):
+                    return iter([])
+
                 try:
                     object_metadata = self.info(effective_path)
                     if include_url_prefix:
@@ -668,11 +676,16 @@ class SingleStorageClient(AbstractStorageClient):
             )
 
         for object in objects:
+            # Skip objects that do not match the patterns
+            if pattern_matcher and not pattern_matcher.should_include_file(object.key):
+                continue
+
             if include_url_prefix:
                 if self.is_default_profile():
                     object.key = str(PurePosixPath("/") / object.key)
                 else:
                     object.key = join_paths(f"{MSC_PROTOCOL}{self._config.profile}", object.key)
+
             yield object
 
     def open(

@@ -16,13 +16,15 @@
 import argparse
 import json
 import sys
+from typing import Optional
 
 from prettytable import PrettyTable
 
 import multistorageclient as msc
-from multistorageclient.types import AWARE_DATETIME_MIN, ObjectMetadata
+from multistorageclient.types import AWARE_DATETIME_MIN, ObjectMetadata, PatternList, PatternType
 
 from .action import Action
+from .utils import OrderedPatternAction
 
 
 class LsAction(Action):
@@ -70,6 +72,18 @@ class LsAction(Action):
             action="store_true",
             help="Display metadata attributes dictionary as an additional column",
         )
+        parser.add_argument(
+            "--include",
+            action=OrderedPatternAction,
+            pattern_type=PatternType.INCLUDE,
+            help="Include only files that match the specified pattern. Can be used multiple times. Supports AWS S3 compatible glob patterns (*, ?, [sequence], [!sequence]).",
+        )
+        parser.add_argument(
+            "--exclude",
+            action=OrderedPatternAction,
+            pattern_type=PatternType.EXCLUDE,
+            help="Exclude files that match the specified pattern. Can be used multiple times. Supports AWS S3 compatible glob patterns (*, ?, [sequence], [!sequence]).",
+        )
         parser.add_argument("path", help="The path to list (POSIX path or msc:// URL)")
 
         # Add examples as description
@@ -106,6 +120,22 @@ class LsAction(Action):
   # Show metadata attributes
   msc ls "msc://profile/models/" --show-attributes
   msc ls "msc://profile/data/" --show-attributes --human-readable
+
+  # List only specific file types
+  msc ls "msc://profile/data/" --include "*.jpg" --include "*.png"
+
+  # List all files except certain types
+  msc ls "msc://profile/data/" --exclude "*.tmp" --exclude "*.log"
+
+  # List with complex patterns (exclude all, then include specific types)
+  msc ls "msc://profile/data/" --exclude "*" --include "*.jpg" --include "*.png"
+
+  # Order matters! Later patterns override earlier ones
+  msc ls "msc://profile/data/" --exclude "*" --include "*.txt"  # Only .txt files
+  msc ls "msc://profile/data/" --include "*.txt" --exclude "*"  # No files (exclude overrides include)
+
+  # List with directory patterns (AWS S3 compatible)
+  msc ls "msc://profile/data/" --include "images/*.jpg" --exclude "temp/*"
 """
 
     def _remove_path_prefix(self, path: str, metadata: ObjectMetadata) -> str:
@@ -180,6 +210,10 @@ class LsAction(Action):
 
             client, path = msc.resolve_storage_client(args.path)
 
+            # Create ordered pattern list if patterns are provided
+            ordered_patterns = getattr(args, "ordered_patterns", [])
+            patterns: Optional[PatternList] = ordered_patterns if ordered_patterns else None
+
             # Use client.list with proper parameters
             results_iter = client.list(
                 path=path,
@@ -188,6 +222,7 @@ class LsAction(Action):
                 include_directories=not args.recursive,
                 attribute_filter_expression=args.attribute_filter_expression,
                 show_attributes=args.show_attributes,
+                patterns=patterns,
             )
 
             # Collect results

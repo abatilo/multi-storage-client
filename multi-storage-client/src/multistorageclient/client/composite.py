@@ -29,7 +29,7 @@ from ..types import (
     Range,
     SourceVersionCheckMode,
 )
-from ..utils import join_paths
+from ..utils import PatternMatcher, join_paths
 from .single import SingleStorageClient
 from .types import AbstractStorageClient
 
@@ -268,6 +268,7 @@ class CompositeStorageClient(AbstractStorageClient):
         attribute_filter_expression: Optional[str] = None,
         show_attributes: bool = False,
         follow_symlinks: bool = True,
+        patterns: Optional[PatternList] = None,
     ) -> Iterator[ObjectMetadata]:
         # Parameter validation - either path or prefix, not both
         if path and prefix:
@@ -280,6 +281,9 @@ class CompositeStorageClient(AbstractStorageClient):
         # Use path if provided, otherwise fall back to prefix
         effective_path = path if path else prefix
 
+        # Apply patterns to the objects
+        pattern_matcher = PatternMatcher(patterns) if patterns else None
+
         # Delegate to metadata provider (always present for CompositeStorageClient)
         for obj in self._metadata_provider.list_objects(
             effective_path,
@@ -289,8 +293,13 @@ class CompositeStorageClient(AbstractStorageClient):
             attribute_filter_expression=attribute_filter_expression,
             show_attributes=show_attributes,
         ):
+            # Skip objects that do not match the patterns
+            if pattern_matcher and not pattern_matcher.should_include_file(obj.key):
+                continue
+
             if include_url_prefix:
                 obj.key = join_paths(f"{MSC_PROTOCOL}{self._config.profile}", obj.key)
+
             yield obj
 
     def is_file(self, path: str) -> bool:
