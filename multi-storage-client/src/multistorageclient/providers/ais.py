@@ -27,6 +27,7 @@ from dateutil.parser import parse as dateutil_parser
 from requests.exceptions import HTTPError
 from urllib3.util import Retry
 
+from ..constants import DEFAULT_READ_TIMEOUT
 from ..telemetry import Telemetry
 from ..types import (
     AWARE_DATETIME_MIN,
@@ -138,6 +139,8 @@ class AIStoreStorageProvider(BaseStorageProvider):
         # https://aistore.nvidia.com/docs/python-sdk#client.Client
         client_retry = None if retry is None else Retry(**retry)
         token = None
+        if timeout is None:
+            timeout = float(DEFAULT_READ_TIMEOUT)
         if credentials_provider:
             token = credentials_provider.get_credentials().token
             self.client = Client(
@@ -149,7 +152,9 @@ class AIStoreStorageProvider(BaseStorageProvider):
                 token=token,
             )
         else:
-            self.client = Client(endpoint=endpoint, retry=client_retry)
+            self.client = Client(
+                endpoint=endpoint, retry=client_retry, timeout=timeout, skip_verify=skip_verify, ca_cert=ca_cert
+            )
         self.provider = provider
 
     def _translate_errors(

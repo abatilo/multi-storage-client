@@ -15,3 +15,7 @@
 
 # Default limit (512MB) for loading files into memory
 MEMORY_LOAD_LIMIT = 512 * 1024 * 1024
+
+# Default timeout values (in seconds) for storage provider connections
+DEFAULT_CONNECT_TIMEOUT = 60
+DEFAULT_READ_TIMEOUT = 60

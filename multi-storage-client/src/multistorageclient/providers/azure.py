@@ -23,6 +23,7 @@ from azure.core import MatchConditions
 from azure.core.exceptions import AzureError, HttpResponseError
 from azure.storage.blob import BlobPrefix, BlobServiceClient
 
+from ..constants import DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT
 from ..telemetry import Telemetry
 from ..types import (
     AWARE_DATETIME_MIN,
@@ -108,9 +109,13 @@ class AzureBlobStorageProvider(BaseStorageProvider):
             "connection_timeout",
             "read_timeout",
         }
-        self._client_optional_configuration = {
+        self._client_optional_configuration: dict[str, Any] = {
             key: value for key, value in kwargs.items() if key in client_optional_configuration_keys
         }
+        if "connection_timeout" not in self._client_optional_configuration:
+            self._client_optional_configuration["connection_timeout"] = DEFAULT_CONNECT_TIMEOUT
+        if "read_timeout" not in self._client_optional_configuration:
+            self._client_optional_configuration["read_timeout"] = DEFAULT_READ_TIMEOUT
         self._blob_service_client = self._create_blob_service_client()
 
     def _create_blob_service_client(self) -> BlobServiceClient:

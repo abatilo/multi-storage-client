@@ -29,6 +29,7 @@ from botocore.session import get_session
 
 from multistorageclient_rust import RustClient, RustClientError, RustRetryableError
 
+from ..constants import DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT
 from ..rust_utils import parse_retry_config, run_async_rust_client_method
 from ..telemetry import Telemetry
 from ..types import (
@@ -148,8 +149,8 @@ class S3StorageProvider(BaseStorageProvider):
             request_checksum_calculation=kwargs.get("request_checksum_calculation"),
             response_checksum_validation=kwargs.get("response_checksum_validation"),
             max_pool_connections=kwargs.get("max_pool_connections", MAX_POOL_CONNECTIONS),
-            connect_timeout=kwargs.get("connect_timeout"),
-            read_timeout=kwargs.get("read_timeout"),
+            connect_timeout=kwargs.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT),
+            read_timeout=kwargs.get("read_timeout", DEFAULT_READ_TIMEOUT),
             retries=kwargs.get("retries"),
         )
         self._transfer_config = TransferConfig(

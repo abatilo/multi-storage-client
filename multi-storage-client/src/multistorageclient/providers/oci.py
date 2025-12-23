@@ -30,6 +30,7 @@ from oci.exceptions import ServiceError
 from oci.object_storage import ObjectStorageClient, UploadManager
 from oci.retry import DEFAULT_RETRY_STRATEGY, RetryStrategyBuilder
 
+from ..constants import DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT
 from ..telemetry import Telemetry
 from ..types import (
     AWARE_DATETIME_MIN,
@@ -92,6 +93,9 @@ class OracleStorageProvider(BaseStorageProvider):
             if retry_strategy is None
             else RetryStrategyBuilder(**retry_strategy).get_retry_strategy()
         )
+        self._timeout = kwargs.get("timeout")
+        if self._timeout is None:
+            self._timeout = (DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT)
         self._oci_client = self._create_oci_client()
         self._upload_manager = UploadManager(self._oci_client)
         self._multipart_threshold = int(kwargs.get("multipart_threshold", MULTIPART_THRESHOLD))
@@ -99,7 +103,9 @@ class OracleStorageProvider(BaseStorageProvider):
 
     def _create_oci_client(self) -> ObjectStorageClient:
         config = oci.config.from_file()
-        return ObjectStorageClient(config, retry_strategy=self._retry_strategy)
+        client = ObjectStorageClient(config, retry_strategy=self._retry_strategy)
+        client.base_client.timeout = self._timeout
+        return client
 
     def _refresh_oci_client_if_needed(self) -> None:
         """
