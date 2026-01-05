@@ -22,7 +22,7 @@ from collections.abc import Iterator
 from typing import IO, TYPE_CHECKING, Any, List, Optional, Union
 
 from ..constants import MEMORY_LOAD_LIMIT
-from ..types import ExecutionMode, SourceVersionCheckMode
+from ..types import ExecutionMode, SourceVersionCheckMode, SyncResult
 
 if TYPE_CHECKING:
     from ..cache import CacheManager
@@ -341,7 +341,7 @@ class AbstractStorageClient(ABC):
         source_files: Optional[List[str]] = None,
         ignore_hidden: bool = True,
         commit_metadata: bool = True,
-    ) -> None:
+    ) -> SyncResult:
         """
         Syncs files from the source storage client to "path/".
 

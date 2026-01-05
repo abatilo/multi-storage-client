@@ -188,12 +188,23 @@ def _sync_worker_process(
                             target_file_path, include_pending=True
                         )
                     else:
-                        physical_metadata = None
+                        physical_metadata = ObjectMetadata(
+                            key=target_file_path,
+                            content_length=file_metadata.content_length,
+                            last_modified=file_metadata.last_modified,
+                            metadata=file_metadata.metadata,
+                        )
                     result_queue.put((op, target_file_path, physical_metadata))
                 elif op == OperationType.DELETE:
                     logger.debug(f"rm {file_metadata.key}")
                     target_client.delete(file_metadata.key)
-                    result_queue.put((op, target_file_path, None))
+                    physical_metadata = ObjectMetadata(
+                        key=target_file_path,
+                        content_length=file_metadata.content_length,
+                        last_modified=file_metadata.last_modified,
+                        metadata=file_metadata.metadata,
+                    )
+                    result_queue.put((op, target_file_path, physical_metadata))
                 else:
                     raise ValueError(f"Unknown operation: {op}")
             except Exception as e:

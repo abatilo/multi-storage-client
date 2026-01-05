@@ -21,7 +21,7 @@ import pytest
 
 from multistorageclient.client import StorageClient
 from multistorageclient.sync import SyncManager
-from multistorageclient.types import ObjectMetadata
+from multistorageclient.types import ObjectMetadata, SyncError
 
 
 class MockStorageClient:
@@ -48,7 +48,7 @@ def test_sync_function_return_producer_error():
         target_client=cast(StorageClient, target_client),
         target_path="",
     )
-    with pytest.raises(RuntimeError, match="Errors in sync operation:"):
+    with pytest.raises(SyncError, match="Errors in sync operation:"):
         manager.sync_objects()
 
 

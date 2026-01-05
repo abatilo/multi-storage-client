@@ -37,7 +37,7 @@ from multistorageclient.sync.worker import (
     _create_exclusive_filelock,
     _update_posix_metadata,
 )
-from multistorageclient.types import ObjectMetadata
+from multistorageclient.types import ObjectMetadata, SyncError
 from test_multistorageclient.unit.utils import config, tempdatastore
 
 
@@ -112,8 +112,8 @@ def test_sync_with_worker_error_fail_fast():
             return original_copy2(src, dst, **kwargs)
 
         with mock.patch.object(sync_module.worker.shutil, "copy2", side_effect=mock_copy2):
-            # Sync should raise RuntimeError containing worker errors
-            with pytest.raises(RuntimeError, match="Errors in sync operation"):
+            # Sync should raise SyncError containing worker errors
+            with pytest.raises(SyncError, match="Errors in sync operation"):
                 target_client.sync_from(source_client, source_path, target_path)
 
 

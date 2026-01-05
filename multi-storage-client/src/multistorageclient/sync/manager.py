@@ -22,7 +22,7 @@ import time
 from typing import TYPE_CHECKING, Optional
 
 from ..progress_bar import ProgressBar
-from ..types import ExecutionMode
+from ..types import ExecutionMode, SyncError, SyncResult
 from ..utils import PatternMatcher, calculate_worker_processes_and_threads
 from .monitors import ErrorMonitorThread, ResultMonitorThread
 from .producer import ProducerThread
@@ -88,7 +88,7 @@ class SyncManager:
         source_files: Optional[list[str]] = None,
         ignore_hidden: bool = True,
         commit_metadata: bool = True,
-    ):
+    ) -> SyncResult:
         """
         Synchronize objects from source to target storage location.
 
@@ -119,9 +119,12 @@ class SyncManager:
         :param ignore_hidden: Whether to ignore hidden files and directories (starting with dot). Default is True.
         :param commit_metadata: When True (default), calls :py:meth:`StorageClient.commit_metadata` after sync completes.
             Set to False to skip the commit, allowing batching of multiple sync operations before committing manually.
-        :raises RuntimeError: If errors occur during sync operations. Exception message contains details of all errors encountered.
+        :raises SyncError: If errors occur during sync operations. Exception message contains details of all errors encountered.
             The sync operation will stop on the first error (fail-fast) and report all errors collected up to that point.
+            The SyncError includes a partial SyncResult showing what was accomplished before the error occurred.
         """
+        sync_start_time = time.time()
+
         logger.debug(f"Starting sync operation {description}")
 
         # Use provided pattern matcher for include/exclude filtering
@@ -402,5 +405,19 @@ class SyncManager:
                     f"    Traceback:\n{error_info.traceback_str}"
                 )
 
+        sync_result = SyncResult(
+            total_work_units=producer_thread.total_work_units,
+            total_files_added=result_monitor_thread.total_files_added,
+            total_files_deleted=result_monitor_thread.total_files_deleted,
+            total_bytes_added=result_monitor_thread.total_bytes_added,
+            total_bytes_deleted=result_monitor_thread.total_bytes_deleted,
+            total_time_seconds=time.time() - sync_start_time,
+        )
+
         if error_messages:
-            raise RuntimeError(f"Errors in sync operation: {''.join(error_messages)}")
+            raise SyncError(
+                f"Errors in sync operation: {''.join(error_messages)}",
+                sync_result=sync_result,
+            )
+
+        return sync_result

@@ -42,6 +42,7 @@ from ..types import (
     ResolvedPathState,
     SourceVersionCheckMode,
     StorageProvider,
+    SyncResult,
 )
 from ..utils import NullStorageClient, PatternMatcher, join_paths
 from .types import AbstractStorageClient
@@ -833,7 +834,7 @@ class SingleStorageClient(AbstractStorageClient):
         source_files: Optional[List[str]] = None,
         ignore_hidden: bool = True,
         commit_metadata: bool = True,
-    ) -> None:
+    ) -> SyncResult:
         """
         Syncs files from the source storage client to "path/".
 
@@ -878,7 +879,7 @@ class SingleStorageClient(AbstractStorageClient):
 
         m = SyncManager(source_client, source_path, self, target_path)
 
-        m.sync_objects(
+        return m.sync_objects(
             execution_mode=execution_mode,
             description=description,
             num_worker_processes=num_worker_processes,

@@ -77,6 +77,7 @@ class ProducerThread(threading.Thread):
         self.source_files = source_files
         self.ignore_hidden = ignore_hidden
         self.error = None
+        self.total_work_units = 0
 
     def _match_file_metadata(self, source_info: ObjectMetadata, target_info: ObjectMetadata) -> bool:
         # Check file size is the same and the target's last_modified is newer than the source.
@@ -121,7 +122,6 @@ class ProducerThread(threading.Thread):
                 )
 
             target_iter = iter(self.target_client.list(prefix=self.target_path))
-            total_count = 0
 
             source_file = next(source_iter, None)
             target_file = next(target_iter, None)
@@ -132,7 +132,7 @@ class ProducerThread(threading.Thread):
                     break
 
                 # Update progress and count each pair (or single) considered for syncing
-                self.progress.update_total(total_count)
+                self.progress.update_total(self.total_work_units)
 
                 if source_file and target_file:
                     source_key = source_file.key[len(self.source_path) :].lstrip("/")
@@ -151,12 +151,12 @@ class ProducerThread(threading.Thread):
                         # Check if file should be included based on patterns
                         if not self.pattern_matcher or self.pattern_matcher.should_include_file(source_key):
                             self.file_queue.put((OperationType.ADD, source_file))
-                            total_count += 1
+                            self.total_work_units += 1
                         source_file = next(source_iter, None)
                     elif source_key > target_key:
                         if self.delete_unmatched_files:
                             self.file_queue.put((OperationType.DELETE, target_file))
-                            total_count += 1
+                            self.total_work_units += 1
                         target_file = next(target_iter, None)  # Skip unmatched target file
                     else:
                         # Both exist, compare metadata
@@ -169,7 +169,7 @@ class ProducerThread(threading.Thread):
 
                         source_file = next(source_iter, None)
                         target_file = next(target_iter, None)
-                        total_count += 1
+                        self.total_work_units += 1
                 elif source_file:
                     source_key = source_file.key[len(self.source_path) :].lstrip("/")
 
@@ -181,7 +181,7 @@ class ProducerThread(threading.Thread):
                     # Check if file should be included based on patterns
                     if not self.pattern_matcher or self.pattern_matcher.should_include_file(source_key):
                         self.file_queue.put((OperationType.ADD, source_file))
-                        total_count += 1
+                        self.total_work_units += 1
                     source_file = next(source_iter, None)
                 elif target_file:
                     target_key = target_file.key[len(self.target_path) :].lstrip("/")
@@ -193,10 +193,10 @@ class ProducerThread(threading.Thread):
 
                     if self.delete_unmatched_files:
                         self.file_queue.put((OperationType.DELETE, target_file))
-                        total_count += 1
+                        self.total_work_units += 1
                     target_file = next(target_iter, None)
 
-            self.progress.update_total(total_count)
+            self.progress.update_total(self.total_work_units)
         except Exception as e:
             self.error = e
         finally:

@@ -28,6 +28,7 @@ from ..types import (
     PatternList,
     Range,
     SourceVersionCheckMode,
+    SyncResult,
 )
 from ..utils import PatternMatcher, join_paths
 from .single import SingleStorageClient
@@ -374,7 +375,7 @@ class CompositeStorageClient(AbstractStorageClient):
         source_files: Optional[List[str]] = None,
         ignore_hidden: bool = True,
         commit_metadata: bool = True,
-    ) -> None:
+    ) -> SyncResult:
         raise NotImplementedError(
             "CompositeStorageClient cannot be used as sync target (write operation). "
             "Use CompositeStorageClient as source only, or use a single-location dataset as target."

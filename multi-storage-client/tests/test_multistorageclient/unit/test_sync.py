@@ -31,7 +31,7 @@ from multistorageclient.constants import MEMORY_LOAD_LIMIT
 from multistorageclient.progress_bar import ProgressBar
 from multistorageclient.providers.base import BaseStorageProvider
 from multistorageclient.providers.manifest_metadata import DEFAULT_MANIFEST_BASE_DIR
-from multistorageclient.types import ExecutionMode, ObjectMetadata, PatternType
+from multistorageclient.types import ExecutionMode, ObjectMetadata, PatternType, SyncError
 from test_multistorageclient.unit.utils import config, tempdatastore
 
 
@@ -134,34 +134,86 @@ def test_sync_function(
         time.sleep(1)
 
         print(f"First sync from {source_msc_url} to {target_msc_url}")
-        msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+        result = msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+
+        # Verify SyncResult for first sync - should copy all 9 files
+        assert result.total_work_units == 9, f"Expected 9 work units, got {result.total_work_units}"
+        assert result.total_files_added == 9, f"Expected 9 files added, got {result.total_files_added}"
+        assert result.total_files_deleted == 0, f"Expected 0 files deleted, got {result.total_files_deleted}"
+        expected_bytes = sum(len(content.encode("utf-8")) for content in expected_files.values())
+        assert result.total_bytes_added == expected_bytes, (
+            f"Expected {expected_bytes} bytes, got {result.total_bytes_added}"
+        )
+        assert result.total_bytes_deleted == 0, f"Expected 0 bytes deleted, got {result.total_bytes_deleted}"
+        assert result.total_time_seconds > 0, "Expected positive total_time_seconds"
 
         # Verify contents on target match expectation.
         verify_sync_and_contents(target_url=target_msc_url, expected_files=expected_files)
 
-        print("Deleting file at target and syncing again")
+        print("Deleting a single file at target and syncing again")
         msc.delete(os.path.join(target_msc_url, "dir1/file0.txt"))
-        msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+        result = msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+
+        # Verify SyncResult - should re-add the deleted file
+        assert result.total_work_units == 9
+        assert result.total_files_added == 1, f"Expected 1 file added, got {result.total_files_added}"
+        assert result.total_files_deleted == 0
+        deleted_file_size = len("a" * 100)
+        assert result.total_bytes_added == deleted_file_size, (
+            f"Expected {deleted_file_size} bytes, got {result.total_bytes_added}"
+        )
+        assert result.total_time_seconds > 0
+
+        # Verify contents on target match expectation.
         verify_sync_and_contents(target_url=target_msc_url, expected_files=expected_files)
 
         print("Syncing again and verifying timestamps")
         timestamps_before = {file: get_file_timestamp(os.path.join(target_msc_url, file)) for file in expected_files}
-        msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+        result = msc.sync(source_url=source_msc_url, target_url=target_msc_url)
         timestamps_after = {file: get_file_timestamp(os.path.join(target_msc_url, file)) for file in expected_files}
         assert timestamps_before == timestamps_after, "Timestamps changed on second sync."
+
+        # Verify SyncResult - no changes, so nothing should be copied
+        assert result.total_work_units == 9
+        assert result.total_files_added == 0, f"Expected 0 files added, got {result.total_files_added}"
+        assert result.total_files_deleted == 0
+        assert result.total_bytes_added == 0, f"Expected 0 bytes added, got {result.total_bytes_added}"
+        assert result.total_time_seconds > 0
 
         print("Adding new files and syncing again")
         new_files = {"dir1/new_file.txt": "n" * 100}
         create_local_test_dataset(source_msc_url, expected_files=new_files)
-        msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+        result = msc.sync(source_url=source_msc_url, target_url=target_msc_url)
         expected_files.update(new_files)
+
+        # Verify SyncResult - should add 1 new file
+        assert result.total_work_units == 10, f"Expected 10 work units, got {result.total_work_units}"
+        assert result.total_files_added == 1, f"Expected 1 file added, got {result.total_files_added}"
+        assert result.total_files_deleted == 0
+        new_file_size = len("n" * 100)
+        assert result.total_bytes_added == new_file_size, (
+            f"Expected {new_file_size} bytes, got {result.total_bytes_added}"
+        )
+        assert result.total_time_seconds > 0
+
         verify_sync_and_contents(target_url=target_msc_url, expected_files=expected_files)
 
         print("Modifying one of the source files, but keeping size the same, and verifying it's copied.")
         modified_files = {"dir1/file0.txt": "z" * 100}
         create_local_test_dataset(source_msc_url, expected_files=modified_files)
         expected_files.update(modified_files)
-        msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+        result = msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+
+        # Verify SyncResult - should update 1 modified file
+        assert result.total_work_units == 10
+        assert result.total_files_added == 1, f"Expected 1 file added (updated), got {result.total_files_added}"
+        assert result.total_files_deleted == 0
+        modified_file_size = len("z" * 100)
+        assert result.total_bytes_added == modified_file_size, (
+            f"Expected {modified_file_size} bytes, got {result.total_bytes_added}"
+        )
+        assert result.total_time_seconds > 0
+
         verify_sync_and_contents(target_url=target_msc_url, expected_files=expected_files)
 
         with pytest.raises(ValueError):
@@ -172,7 +224,18 @@ def test_sync_function(
             msc.sync(source_url=source_msc_url, target_url=os.path.join(source_msc_url, "extra"))
 
         print("Syncing from object to a second posix file location using ManifestProvider.")
-        msc.sync(source_url=target_msc_url, target_url=second_msc_url)
+        result = msc.sync(source_url=target_msc_url, target_url=second_msc_url)
+
+        # Verify SyncResult - should copy all 10 files to new location
+        assert result.total_work_units == 10
+        assert result.total_files_added == 10, f"Expected 10 files added, got {result.total_files_added}"
+        assert result.total_files_deleted == 0
+        expected_bytes = sum(len(content.encode("utf-8")) for content in expected_files.values())
+        assert result.total_bytes_added == expected_bytes, (
+            f"Expected {expected_bytes} bytes, got {result.total_bytes_added}"
+        )
+        assert result.total_time_seconds > 0
+
         verify_sync_and_contents(target_url=second_msc_url, expected_files=expected_files)
 
         print("Deleting all the files at the target and going again.")
@@ -180,27 +243,81 @@ def test_sync_function(
             msc.delete(os.path.join(target_msc_url, key))
 
         print("Syncing using prefixes to just copy one subfolder.")
-        msc.sync(source_url=os.path.join(source_msc_url, "dir2"), target_url=os.path.join(target_msc_url, "dir2"))
+        result = msc.sync(
+            source_url=os.path.join(source_msc_url, "dir2"), target_url=os.path.join(target_msc_url, "dir2")
+        )
         sub_expected_files = {k: v for k, v in expected_files.items() if k.startswith("dir2")}
+
+        # Verify SyncResult - should copy 3 files from dir2
+        assert result.total_work_units == 3, f"Expected 3 work units, got {result.total_work_units}"
+        assert result.total_files_added == 3, f"Expected 3 files added, got {result.total_files_added}"
+        assert result.total_files_deleted == 0
+        dir2_bytes = sum(len(v.encode("utf-8")) for k, v in expected_files.items() if k.startswith("dir2"))
+        assert result.total_bytes_added == dir2_bytes, f"Expected {dir2_bytes} bytes, got {result.total_bytes_added}"
+        assert result.total_time_seconds > 0
+
         verify_sync_and_contents(target_url=target_msc_url, expected_files=sub_expected_files)
 
-        msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+        result = msc.sync(source_url=source_msc_url, target_url=target_msc_url)
+
+        # Verify SyncResult - should add the remaining 7 files (10 total - 3 from dir2)
+        assert result.total_work_units == 10
+        assert result.total_files_added == 7, f"Expected 7 files added, got {result.total_files_added}"
+        assert result.total_files_deleted == 0
+        remaining_bytes = sum(len(v.encode("utf-8")) for k, v in expected_files.items() if not k.startswith("dir2"))
+        assert result.total_bytes_added == remaining_bytes, (
+            f"Expected {remaining_bytes} bytes, got {result.total_bytes_added}"
+        )
+        assert result.total_time_seconds > 0
 
         print("Deleting files at the source and syncing again, verify deletes at target.")
         keys_to_delete = [k for k in expected_files.keys() if k.startswith("dir2")]
+        # Save the bytes before deleting
+        deleted_files_data = {k: expected_files[k] for k in keys_to_delete}
         # Delete keys at the source.
         for key in keys_to_delete:
             expected_files.pop(key)
             msc.delete(os.path.join(source_msc_url, key))
 
         # Sync from source to target and expect deletes to happen at the target.
-        msc.sync(source_url=source_msc_url, target_url=target_msc_url, delete_unmatched_files=True)
+        result = msc.sync(source_url=source_msc_url, target_url=target_msc_url, delete_unmatched_files=True)
+
+        # Verify SyncResult - should delete 3 files from dir2
+        # total_work_units includes files from both source and target when checking for deletions
+        assert result.total_work_units == 10, f"Expected 10 work units, got {result.total_work_units}"
+        assert result.total_files_added == 0, f"Expected 0 files added, got {result.total_files_added}"
+        assert result.total_files_deleted == 3, f"Expected 3 files deleted, got {result.total_files_deleted}"
+        assert result.total_bytes_added == 0
+        deleted_bytes = sum(len(v.encode("utf-8")) for v in deleted_files_data.values())
+        assert result.total_bytes_deleted == deleted_bytes, (
+            f"Expected {deleted_bytes} bytes deleted, got {result.total_bytes_deleted}"
+        )
+        assert result.total_time_seconds > 0
+
         verify_sync_and_contents(target_url=target_msc_url, expected_files=expected_files)
 
         # Delete all remaining keys at source and verify the deletes propagate to target.
+        remaining_files_count = len(expected_files)
+        remaining_bytes = sum(len(v.encode("utf-8")) for v in expected_files.values())
         for key in expected_files.keys():
             msc.delete(os.path.join(source_msc_url, key))
-        msc.sync(source_url=source_msc_url, target_url=target_msc_url, delete_unmatched_files=True)
+        result = msc.sync(source_url=source_msc_url, target_url=target_msc_url, delete_unmatched_files=True)
+
+        # Verify SyncResult - should delete all remaining 7 files
+        # When source is empty, we still iterate over target files to check for deletions
+        assert result.total_work_units == remaining_files_count, (
+            f"Expected {remaining_files_count} work units, got {result.total_work_units}"
+        )
+        assert result.total_files_added == 0, f"Expected 0 files added, got {result.total_files_added}"
+        assert result.total_files_deleted == remaining_files_count, (
+            f"Expected {remaining_files_count} files deleted, got {result.total_files_deleted}"
+        )
+        assert result.total_bytes_added == 0
+        assert result.total_bytes_deleted == remaining_bytes, (
+            f"Expected {remaining_bytes} bytes deleted, got {result.total_bytes_deleted}"
+        )
+        assert result.total_time_seconds > 0
+
         verify_sync_and_contents(target_url=target_msc_url, expected_files={})
 
 
@@ -783,10 +900,10 @@ def test_sync_with_manifest_overwrite_behavior():
         msc.write(f"{source_url}/file1.txt", "modified1".encode())
         msc.write(f"{source_url}/file2.txt", "modified2".encode())
 
-        # Second sync with allow_overwrites=False should now fail with RuntimeError
+        # Second sync with allow_overwrites=False should now fail with SyncError
         # This validates that NGCDP-5748 is fixed - errors from worker threads are now
         # properly propagated to the caller
-        with pytest.raises(RuntimeError, match="Errors in sync operation"):
+        with pytest.raises(SyncError, match="Errors in sync operation"):
             msc.sync(f"{source_url}/", f"{no_overwrite_url}/synced/")
 
         # Original content should be preserved (sync failed before overwrites)
@@ -955,7 +1072,7 @@ def test_sync_resume_with_metadata_provider():
 
         # Run sync again - now the file is tracked, so overwrite protection should raise an error
         print("Running sync after source modification (should be blocked by overwrite protection)...")
-        with pytest.raises(RuntimeError, match="Errors in sync operation"):
+        with pytest.raises(SyncError, match="Errors in sync operation"):
             msc.sync(source_url, target_url)
 
         # Verify the file was NOT updated because it's now tracked and overwrites are disabled
@@ -1054,11 +1171,11 @@ def test_rustclient_credentials_refresh_multiple_threads(
             ]
             results = [f.result() for f in concurrent.futures.as_completed(futures)]
 
-        total_time = time.time() - start_time
+        total_time_seconds = time.time() - start_time
         final_refresh_count = credentials_provider.refresh_count  # type: ignore
 
         print("\n[Test Results]")
-        print(f"  Total time: {total_time:.2f}s")
+        print(f"  Total time: {total_time_seconds:.2f}s")
         print(f"  Credential refreshes: {final_refresh_count}")
         for thread_id, elapsed in sorted(results):
             print(f"  Thread {thread_id}: {elapsed:.2f}s")

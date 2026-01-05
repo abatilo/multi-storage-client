@@ -28,6 +28,7 @@ from ..types import (
     Range,
     SourceVersionCheckMode,
     StorageProvider,
+    SyncResult,
 )
 from .composite import CompositeStorageClient
 from .single import SingleStorageClient
@@ -437,7 +438,7 @@ class StorageClient(AbstractStorageClient):
         source_files: Optional[List[str]] = None,
         ignore_hidden: bool = True,
         commit_metadata: bool = True,
-    ) -> None:
+    ) -> SyncResult:
         """
         Syncs files from the source storage client to "path/".
 

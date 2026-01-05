@@ -686,3 +686,54 @@ class PatternType(Enum):
 
 # Type alias for pattern matching
 PatternList = list[Tuple[PatternType, str]]
+
+
+@dataclass
+class SyncResult:
+    """
+    A data class that represents the summary of a sync operation.
+    """
+
+    #: The total number of work units tracked for progress (including files from both source and target after filtering). Each work unit represents an ADD or DELETE operation.
+    total_work_units: int = 0
+    #: The total number of files processed to the target.
+    total_files_added: int = 0
+    #: The total number of files deleted from the target.
+    total_files_deleted: int = 0
+    #: The total number of bytes transferred to the target.
+    total_bytes_added: int = 0
+    #: The total number of bytes deleted from the target.
+    total_bytes_deleted: int = 0
+    #: The total time taken to process the sync operation.
+    total_time_seconds: float = 0.0
+
+    def __str__(self) -> str:
+        return (
+            f"Sync statistics:\n"
+            f"  Work units: {self.total_work_units}\n"
+            f"  Files added: {self.total_files_added}\n"
+            f"  Files deleted: {self.total_files_deleted}\n"
+            f"  Bytes added: {self.total_bytes_added}\n"
+            f"  Bytes deleted: {self.total_bytes_deleted}\n"
+            f"  Time elapsed: {self.total_time_seconds:.2f}s"
+        )
+
+
+class SyncError(RuntimeError):
+    """
+    Exception raised when errors occur during a sync operation.
+
+    This exception includes the partial SyncResult showing what was accomplished
+    before the error occurred, allowing users to understand the state of the sync.
+
+    :param message: The error message describing what went wrong.
+    :param sync_result: The partial SyncResult with statistics from the failed sync operation.
+    """
+
+    def __init__(self, message: str, sync_result: SyncResult):
+        super().__init__(message)
+        self.sync_result = sync_result
+
+    def __str__(self) -> str:
+        sync_stats = str(self.sync_result).replace("Sync statistics:", "Partial sync statistics:")
+        return f"{super().__str__()}\n\n{sync_stats}"

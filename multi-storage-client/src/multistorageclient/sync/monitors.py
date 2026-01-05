@@ -43,6 +43,10 @@ class ResultMonitorThread(threading.Thread):
         self.progress = progress
         self.result_queue = result_queue
         self.error = None
+        self.total_files_added = 0
+        self.total_files_deleted = 0
+        self.total_bytes_added = 0
+        self.total_bytes_deleted = 0
 
     def run(self):
         try:
@@ -57,7 +61,13 @@ class ResultMonitorThread(threading.Thread):
                 if op == OperationType.STOP:
                     break
 
-                if op in (OperationType.ADD, OperationType.DELETE):
+                if op == OperationType.ADD:
+                    self.total_files_added += 1
+                    self.total_bytes_added += physical_metadata.content_length
+                    self.progress.update_progress()
+                elif op == OperationType.DELETE:
+                    self.total_files_deleted += 1
+                    self.total_bytes_deleted += physical_metadata.content_length
                     self.progress.update_progress()
         except Exception as e:
             self.error = e
