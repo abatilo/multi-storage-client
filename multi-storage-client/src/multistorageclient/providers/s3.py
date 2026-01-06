@@ -352,6 +352,11 @@ class S3StorageProvider(BaseStorageProvider):
                 raise NotImplementedError(
                     f"Operation {operation} not implemented for object(s) at {bucket}/{key}. {error_info}"
                 ) from error
+            elif status_code == 408:
+                # 408 Request Timeout is from Google Cloud Storage
+                raise RetryableError(
+                    f"Request timeout when {operation} object(s) at {bucket}/{key}. {error_info}"
+                ) from error
             else:
                 raise RuntimeError(
                     f"Failed to {operation} object(s) at {bucket}/{key}. {error_info}, "
