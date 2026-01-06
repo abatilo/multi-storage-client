@@ -44,7 +44,7 @@ use aws_config::BehaviorVersion;
 mod credentials;
 mod types;
 
-use credentials::{AwsSdkCredentialsProvider, PyCredentialsProvider};
+use credentials::{AwsCredentialsProvider, AwsSdkCredentialsProvider, GcpCredentialsProvider};
 use types::{ByteRangeLike, ListResult, ObjectMetadata, RustRetryConfig};
 
 pyo3::create_exception!(multistorageclient_rust, RustRetryableError, PyException);
@@ -222,16 +222,16 @@ fn get_retry_config(retry_config: Option<&RustRetryConfig>) -> RetryConfig {
 fn create_store(
     provider: &str,
     configs: Option<&HashMap<String, ConfigValue>>,
-    credentials_provider: Option<&PyCredentialsProvider>,
+    py_credentials_provider: Option<PyObject>,
     max_pool_connections: usize,
     retry_config: Option<&RustRetryConfig>,
 ) -> PyResult<Arc<dyn ObjectStore>> {
     let store = match provider {
         "s3" | "s8k" | "gcs_s3" => {
-            build_s3_store(configs, credentials_provider, retry_config)?
+            build_s3_store(configs, py_credentials_provider, retry_config)?
         }
         "gcs" => {
-            build_gcs_store(configs, credentials_provider, retry_config)?
+            build_gcs_store(configs, py_credentials_provider, retry_config)?
         }
         _ => {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -279,7 +279,7 @@ fn parse_path(path: &str) -> Result<Path, StorageError> {
 
 fn build_s3_store<'a>(
     configs: Option<&'a HashMap<String, ConfigValue>>,
-    credentials_provider: Option<&PyCredentialsProvider>,
+    py_credentials_provider: Option<PyObject>,
     retry_config: Option<&RustRetryConfig>,
 ) -> PyResult<Arc<dyn ObjectStore>> {
     // TODO: Add support for other configuration fields of AmazonS3Builder, full list here:
@@ -290,8 +290,9 @@ fn build_s3_store<'a>(
         StorageError::ConfigError("Configuration dictionary is required for S3 provider.".to_string())
     })?;
 
-    if let Some(creds_provider) = credentials_provider {
-        builder = builder.with_credentials(Arc::new(creds_provider.clone()));
+    if let Some(py_creds_provider) = py_credentials_provider {
+        let aws_provider = AwsCredentialsProvider::new(py_creds_provider, None);
+        builder = builder.with_credentials(Arc::new(aws_provider));
     } else {
         // Use AWS SDK default credential chain
         let aws_provider = load_aws_credentials_provider()?;
@@ -366,7 +367,7 @@ fn build_s3_store<'a>(
 
 fn build_gcs_store<'a>(
     configs: Option<&'a HashMap<String, ConfigValue>>,
-    _credentials_provider: Option<&PyCredentialsProvider>,
+    py_credentials_provider: Option<PyObject>,
     retry_config: Option<&RustRetryConfig>,
 ) -> PyResult<Arc<dyn ObjectStore>> {
     let mut builder = GoogleCloudStorageBuilder::new();
@@ -374,6 +375,11 @@ fn build_gcs_store<'a>(
     let configs = configs.ok_or_else(|| {
         StorageError::ConfigError("Configuration dictionary is required for GCS provider.".to_string())
     })?;
+
+    if let Some(py_creds_provider) = py_credentials_provider {
+        let gcp_provider = GcpCredentialsProvider::new(py_creds_provider, None);
+        builder = builder.with_credentials(Arc::new(gcp_provider));
+    }
 
     if let Some(bucket_val) = configs.get("bucket") {
         builder = builder.with_bucket_name(bucket_val.to_string());
@@ -522,14 +528,10 @@ impl RustClient {
             }
         }
         
-        let py_creds_provider = credentials_provider.map(|py_obj| {
-            PyCredentialsProvider::new(py_obj, None)
-        });
-        
         let store = create_store(
             &provider,
             Some(&configs_map),
-            py_creds_provider.as_ref(),
+            credentials_provider,
             max_pool_connections,
             retry.as_ref(),
         )?;

@@ -198,12 +198,6 @@ class GoogleStorageProvider(BaseStorageProvider):
                 rust_client_options["read_timeout"] = kwargs["read_timeout"]
             if "connect_timeout" in kwargs:
                 rust_client_options["connect_timeout"] = kwargs["connect_timeout"]
-            if "service_account_key" not in rust_client_options and isinstance(
-                self._credentials_provider, GoogleServiceAccountCredentialsProvider
-            ):
-                rust_client_options["service_account_key"] = json.dumps(
-                    self._credentials_provider.get_credentials().get_custom_field("info")
-                )
             self._rust_client = self._create_rust_client(rust_client_options)
 
     def _create_gcs_client(self) -> storage.Client:
@@ -250,13 +244,10 @@ class GoogleStorageProvider(BaseStorageProvider):
             return storage.Client(project=self._project_id, client_options=client_options)
 
     def _create_rust_client(self, rust_client_options: Optional[dict[str, Any]] = None):
-        if self._credentials_provider or self._endpoint_url:
-            # Workload Identity Federation (WIF) is not supported by the rust client:
-            # https://github.com/apache/arrow-rs-object-store/issues/258
-            logger.warning(
-                "Rust client for GCS only supports Application Default Credentials or Service Account Key, skipping rust client"
-            )
+        if self._endpoint_url:
+            logger.warning("Rust client for GCS does not support customized endpoint URL, skipping rust client")
             return None
+
         configs = dict(rust_client_options) if rust_client_options else {}
 
         # Extract and parse retry configuration
@@ -278,11 +269,32 @@ class GoogleStorageProvider(BaseStorageProvider):
             bucket, _ = split_path(self._base_path)
             configs["bucket"] = bucket
 
-        return RustClient(
-            provider=PROVIDER,
-            configs=configs,
-            retry=retry_config,
-        )
+        if self._credentials_provider:
+            if isinstance(self._credentials_provider, GoogleIdentityPoolCredentialsProvider):
+                # Workload Identity Federation (WIF) is not supported by the rust client:
+                # https://github.com/apache/arrow-rs-object-store/issues/258
+                logger.warning("Rust client for GCS doesn't support Workload Identity Federation, skipping rust client")
+                return None
+            if isinstance(self._credentials_provider, GoogleServiceAccountCredentialsProvider):
+                # Use service account key.
+                configs["service_account_key"] = json.dumps(
+                    self._credentials_provider.get_credentials().get_custom_field("info")
+                )
+                return RustClient(
+                    provider=PROVIDER,
+                    configs=configs,
+                    retry=retry_config,
+                )
+        try:
+            return RustClient(
+                provider=PROVIDER,
+                configs=configs,
+                credentials_provider=self._credentials_provider,
+                retry=retry_config,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create rust client for GCS: {e}, falling back to Python client")
+            return None
 
     def _refresh_gcs_client_if_needed(self) -> None:
         """
