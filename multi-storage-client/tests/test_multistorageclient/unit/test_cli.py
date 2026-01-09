@@ -145,8 +145,8 @@ def test_sync_help_command(run_cli):
 
 
 def test_sync_without_replicas(run_cli):
-    stdout, stderr = run_cli("sync", "msc://default/data")
-    assert "No replicas found in profile 'default'" in stderr
+    stdout, stderr = run_cli("sync", "msc://__filesystem__/data")
+    assert "No replicas found in profile '__filesystem__'" in stderr
 
 
 def test_sync_command_with_real_files(run_cli):

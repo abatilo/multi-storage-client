@@ -26,21 +26,9 @@ import pytest
 CONFIG_DIR = tempfile.gettempdir()
 
 CONFIG_YAML = """
-profiles:
-  default:
-    storage_provider:
-      type: file
-      options:
-        base_path: /
 """
 
 CONFIG_YAML_WITH_CACHE = """
-profiles:
-  default:
-    storage_provider:
-      type: file
-      options:
-        base_path: /
 cache:
   eviction_policy:
     policy: no_eviction
@@ -48,11 +36,6 @@ cache:
 
 CONFIG_YAML_WITH_PATH_MAPPING = """
 profiles:
-  default:
-    storage_provider:
-      type: file
-      options:
-        base_path: /
   file-a:
     storage_provider:
       type: file

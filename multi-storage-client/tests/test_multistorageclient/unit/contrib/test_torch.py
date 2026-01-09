@@ -45,7 +45,7 @@ def test_torch_load_with_filepath(sample_data):
 def test_torch_load_with_msc_prefix(sample_data):
     filepath, expected_tensor = sample_data
 
-    result = msc.torch.load(f"{MSC_PROTOCOL}default{filepath}")
+    result = msc.torch.load(f"{MSC_PROTOCOL}__filesystem__{filepath}")
     assert torch.equal(result, expected_tensor)
 
 

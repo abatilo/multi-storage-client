@@ -32,7 +32,7 @@ async def test_multi_async_filesystem(file_storage_config_with_cache):
 
         # test _pipe_file, _cat_file
         filename = os.path.join(dirname, "test_file.txt")
-        test_path = f"default{filename}"
+        test_path = f"__filesystem__{filename}"
         expected_content = b"Hello World"
         await filesystem._pipe_file(test_path, expected_content)
         content = await filesystem._cat_file(test_path)
@@ -40,12 +40,12 @@ async def test_multi_async_filesystem(file_storage_config_with_cache):
 
         # test _ls
         dir_path = os.path.join(dirname, "test_directory/")
-        test_dir_path = f"default{dir_path}"
+        test_dir_path = f"__filesystem__{dir_path}"
         test_file_list = [f"{test_dir_path}file{i}.txt" for i in range(3)]
         for file_path in test_file_list:
             await filesystem._pipe_file(file_path, b"test content")
         listed_files = await filesystem._ls(test_dir_path)
-        expected_file_list = sorted([f"default{dir_path}file{i}.txt".lstrip("/") for i in range(3)])
+        expected_file_list = sorted([f"__filesystem__{dir_path}file{i}.txt".lstrip("/") for i in range(3)])
         assert sorted(f["name"] for f in listed_files) == expected_file_list, (
             f"Expected {expected_file_list}, got {sorted(f['name'] for f in listed_files)}"
         )
@@ -87,7 +87,7 @@ async def test_multi_async_filesystem(file_storage_config_with_cache):
 
         # test _put_file
         local_file_path = os.path.join(dirname, "local_test_file.txt")
-        remote_file_path = f"default{os.path.join(dirname, 'remote_test_file.txt')}"
+        remote_file_path = f"__filesystem__{os.path.join(dirname, 'remote_test_file.txt')}"
         expected_file_content = b"File for _put_file test"
         with open(local_file_path, "wb") as local_file:
             local_file.write(expected_file_content)

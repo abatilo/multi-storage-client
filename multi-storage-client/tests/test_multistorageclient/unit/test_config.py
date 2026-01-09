@@ -67,7 +67,8 @@ def test_json_config() -> None:
                 }
             }
         }
-    }"""
+    }""",
+        profile="default",
     )
 
     storage_client = StorageClient(config)
@@ -98,7 +99,7 @@ def test_override_default_profile() -> None:
         StorageClientConfig.from_json(
             """{
             "profiles": {
-                "default": {
+                "__filesystem__": {
                     "storage_provider": {
                         "type": "s3",
                         "options": {
@@ -110,7 +111,27 @@ def test_override_default_profile() -> None:
         }"""
         )
 
-    assert ex.match('Cannot override "default" profile with storage provider type "s3"; expected "file".')
+    assert 'Cannot override "__filesystem__" profile with different settings.' in str(ex.value)
+
+
+def test_legacy_posix_profile(file_storage_config) -> None:
+    config = StorageClientConfig.from_file()
+    assert config.profile == "__filesystem__"
+
+    config = StorageClientConfig.from_file(profile="default")
+    assert config.profile == "__filesystem__"
+
+    config = StorageClientConfig.from_json("{}")
+    assert config.profile == "__filesystem__"
+
+    config = StorageClientConfig.from_json("{}", profile="default")
+    assert config.profile == "__filesystem__"
+
+    config = StorageClientConfig.from_yaml("")
+    assert config.profile == "__filesystem__"
+
+    config = StorageClientConfig.from_yaml("", profile="default")
+    assert config.profile == "__filesystem__"
 
 
 def test_credentials_provider() -> None:
@@ -135,7 +156,8 @@ def test_credentials_provider() -> None:
                 }
             }
         }
-    }"""
+    }""",
+        profile="default",
     )
 
     yaml_config = StorageClientConfig.from_yaml(
@@ -151,12 +173,14 @@ def test_credentials_provider() -> None:
               options:
                 access_key: ${S3_ACCESS_KEY}
                 secret_key: ${S3_SECRET_KEY}
-        """
+        """,
+        profile="default",
     )
 
     assert json_config._config_dict == yaml_config._config_dict
 
     storage_client = StorageClient(yaml_config)
+    print(storage_client.profile)
     assert isinstance(storage_client._credentials_provider, StaticS3CredentialsProvider)
     credentials_provider = cast(StaticS3CredentialsProvider, storage_client._credentials_provider)
     assert credentials_provider._access_key == "my_key"
@@ -182,7 +206,8 @@ def test_load_extensions() -> None:
               type: test_multistorageclient.unit.utils.mocks.TestCredentialsProvider
             metadata_provider:
               type: test_multistorageclient.unit.utils.mocks.TestMetadataProvider
-        """
+        """,
+        profile="default",
     )
 
     storage_client = StorageClient(config)
@@ -282,7 +307,8 @@ def test_manifest_provider_bundle() -> None:
                 }
             }
         }
-    }"""
+    }""",
+        profile="default",
     )
 
     yaml_config = StorageClientConfig.from_yaml(
@@ -297,7 +323,8 @@ def test_manifest_provider_bundle() -> None:
               type: manifest
               options:
                 manifest_path: .msc_manifests
-        """
+        """,
+        profile="default",
     )
 
     assert json_config._config_dict == yaml_config._config_dict
@@ -323,7 +350,8 @@ def test_manifest_type_unrecognized() -> None:
                   type: file
                   options:
                     manifest_path: .msc_manifests
-            """
+            """,
+            profile="default",
         )
 
     assert "Expected a fully qualified class name" in str(e), f"Unexpected error message: {str(e)}"
@@ -346,7 +374,8 @@ def test_storage_provider_profile_unrecognized() -> None:
                   options:
                     manifest_path: .msc_manifests
                     storage_provider_profile: non-existent-profile
-            """
+            """,
+            profile="default",
         )
 
     assert "Profile 'non-existent-profile' referenced by storage_provider_profile does not exist" in str(e), (
@@ -402,7 +431,8 @@ def test_load_retry_config() -> None:
               attempts: 4
               delay: 0.5
               backoff_multiplier: 3.0
-        """
+        """,
+        profile="default",
     )
 
     storage_client = StorageClient(config)
@@ -419,7 +449,8 @@ def test_load_retry_config() -> None:
               type: file
               options:
                 base_path: /
-        """
+        """,
+        profile="default",
     )
 
     storage_client = StorageClient(config)
@@ -440,7 +471,8 @@ def test_load_retry_config() -> None:
             retry:
               attempts: 5
               delay: 2.0
-        """
+        """,
+        profile="default",
     )
 
     storage_client = StorageClient(config)
@@ -461,7 +493,8 @@ def test_load_retry_config() -> None:
                 retry:
                   attempts: 0
                   delay: 0.5
-            """
+            """,
+            profile="default",
         )
 
     assert "Attempts must be at least 1." in str(e), f"Unexpected error message: {str(e)}"
@@ -479,7 +512,8 @@ def test_load_retry_config() -> None:
                   attempts: 3
                   delay: 0.5
                   backoff_multiplier: 0.5
-            """
+            """,
+            profile="default",
         )
 
     assert "Backoff multiplier must be at least 1.0." in str(e), f"Unexpected error message: {str(e)}"

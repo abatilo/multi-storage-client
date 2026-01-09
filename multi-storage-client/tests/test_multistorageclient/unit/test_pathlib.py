@@ -215,14 +215,14 @@ def test_relative_to_remote_storage(file_storage_config):
     """Test relative_to method with remote storage paths."""
     # Test 1: MSC protocol paths and deep nesting
     # Standard multi-level path
-    path1 = msc.Path("msc://default/data/reports/2024/january/sales.csv")
-    path2 = msc.Path("msc://default/data/reports")
+    path1 = msc.Path("msc://__filesystem__/data/reports/2024/january/sales.csv")
+    path2 = msc.Path("msc://__filesystem__/data/reports")
     assert str(path1.relative_to(path2)) == "2024/january/sales.csv"
     assert isinstance(path1.relative_to(path2), PurePosixPath)
 
     # Deep nesting stress test
-    deep_path = msc.Path("msc://default/a/b/c/d/e/f/g/h/file.txt")
-    base_path = msc.Path("msc://default/a/b")
+    deep_path = msc.Path("msc://__filesystem__/a/b/c/d/e/f/g/h/file.txt")
+    base_path = msc.Path("msc://__filesystem__/a/b")
     assert str(deep_path.relative_to(base_path)) == "c/d/e/f/g/h/file.txt"
 
     # Test 2: Cross-profile errors
@@ -234,15 +234,15 @@ def test_relative_to_remote_storage(file_storage_config):
     with pytest.raises(ValueError, match="Cannot compute relative path between different storage profiles"):
         msc.Path("/local/path/file.txt").relative_to(msc.Path("s3://bucket/path"))
 
-    # Test 3: Local and msc://default compatibility (same profile)
+    # Test 3: Local and msc://__filesystem__ compatibility (same profile)
     local_path = msc.Path("/home/user/documents/file.txt")
-    msc_default = msc.Path("msc://default/home/user/documents")
-    assert str(local_path.relative_to(msc_default)) == "file.txt"
+    msc_filesystem = msc.Path("msc://__filesystem__/home/user/documents")
+    assert str(local_path.relative_to(msc_filesystem)) == "file.txt"
 
 
 def test_hashable_path():
     path1 = msc.Path("/tmp/testfile")
-    path2 = msc.Path("msc://default/tmp/testfile")
+    path2 = msc.Path("msc://__filesystem__/tmp/testfile")
     assert hash(path1) == hash(path2)
     assert path1 == path2
 

@@ -109,7 +109,7 @@ class CompositeStorageClient(AbstractStorageClient):
         return []
 
     def is_default_profile(self) -> bool:
-        return self._config.profile == "default"
+        return self._config.profile == "__filesystem__"
 
     def _is_rust_client_enabled(self) -> bool:
         """

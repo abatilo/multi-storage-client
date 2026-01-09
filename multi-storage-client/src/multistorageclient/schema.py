@@ -166,7 +166,7 @@ PROFILE_SCHEMA = {
         ],
     },
     "propertyNames": {
-        "pattern": "^[^_].*$",  # Profile names must not start with an underscore to prevent collision with implicit profiles
+        "pattern": "^(__filesystem__|[^_].*)$",  # Profile names must not start with an underscore to prevent collision with implicit profiles, except for __filesystem__
     },
 }
 

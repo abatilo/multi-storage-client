@@ -233,9 +233,9 @@ class SingleStorageClient(AbstractStorageClient):
 
     def is_default_profile(self) -> bool:
         """
-        :return: ``True`` if the storage client is using the default profile, ``False`` otherwise.
+        :return: ``True`` if the storage client is using the reserved POSIX profile, ``False`` otherwise.
         """
-        return self._config.profile == "default"
+        return self._config.profile == "__filesystem__"
 
     @property
     def replicas(self) -> List[AbstractStorageClient]:

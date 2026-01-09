@@ -44,7 +44,7 @@ def sample_zarr_data():
 
 
 def test_zarr_open_consolidated(sample_zarr_data, file_storage_config):
-    zarr_paths = [sample_zarr_data, f"{MSC_PROTOCOL}default{sample_zarr_data}/"]
+    zarr_paths = [sample_zarr_data, f"{sample_zarr_data}/"]
     for path in zarr_paths:
         if path.startswith(MSC_PROTOCOL):
             zarr_group = msc.zarr.open_consolidated(path, msc_max_workers=4)

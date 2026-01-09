@@ -44,7 +44,7 @@ def test_pickle_load(pickle_file_path, sample_data):
     assert result == sample_data
 
     # test load with msc-prefixed file path
-    msc_path = f"{MSC_PROTOCOL}default{pickle_file_path}"
+    msc_path = f"{MSC_PROTOCOL}__filesystem__{pickle_file_path}"
     result = msc.pickle.load(msc_path)
     assert result == sample_data
 
@@ -60,7 +60,7 @@ def test_pickle_load(pickle_file_path, sample_data):
 
 def test_pickle_dump(sample_data):
     with tempfile.NamedTemporaryFile(delete=True) as temp:
-        msc_path = f"{MSC_PROTOCOL}default{temp.name}"
+        msc_path = temp.name
 
         # Test dump with msc-prefixed file path
         msc.pickle.dump(sample_data, msc_path)

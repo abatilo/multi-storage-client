@@ -121,7 +121,8 @@ def test_retry_with_custom_backoff_multiplier():
                 }
             }
         }
-    }"""
+    }""",
+        profile="default",
     )
 
     storage_client = StorageClient(config)

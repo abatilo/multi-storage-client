@@ -6,7 +6,7 @@ Quickstart
 Configuration
 *************
 
-The MSC can be used without any configuration to access POSIX paths. When no configuration is provided, it uses a default profile that enables basic file system operations:
+The MSC can be used without any configuration to access POSIX paths. When no configuration is provided, it uses a reserved profile that enables basic file system operations:
 
 .. code-block:: python
 

@@ -78,8 +78,9 @@ def create_implicit_profile_config(profile_name: str, protocol: str, base_path: 
     }
 
 
-DEFAULT_POSIX_PROFILE_NAME = "default"
-DEFAULT_POSIX_PROFILE = create_implicit_profile_config(DEFAULT_POSIX_PROFILE_NAME, "file", "/")
+LEGACY_POSIX_PROFILE_NAME = "default"
+RESERVED_POSIX_PROFILE_NAME = "__filesystem__"
+DEFAULT_POSIX_PROFILE = create_implicit_profile_config(RESERVED_POSIX_PROFILE_NAME, "file", "/")
 
 STORAGE_PROVIDER_MAPPING = {
     "file": "PosixFileStorageProvider",
@@ -417,6 +418,22 @@ def _find_config_file_paths() -> tuple[str]:
     return tuple(paths)
 
 
+def _normalize_profile_name(profile: str, config_dict: dict[str, Any]) -> str:
+    """
+    Normalize the profile name to the reserved POSIX profile name if the legacy "default" POSIX profile is used.
+
+    :param profile: The profile name to normalize
+    :param config_dict: The configuration dictionary
+    :return: The normalized profile name
+    """
+    if profile == LEGACY_POSIX_PROFILE_NAME and profile not in config_dict.get("profiles", {}):
+        logger.warning(
+            f"The profile name '{LEGACY_POSIX_PROFILE_NAME}' is deprecated and will be removed in a future version. Please use '{RESERVED_POSIX_PROFILE_NAME}' instead."
+        )
+        return RESERVED_POSIX_PROFILE_NAME
+    return profile
+
+
 PACKAGE_NAME = "multistorageclient"
 
 logger = logging.getLogger(__name__)
@@ -589,7 +606,7 @@ class StorageClientConfigLoader:
     def __init__(
         self,
         config_dict: dict[str, Any],
-        profile: str = DEFAULT_POSIX_PROFILE_NAME,
+        profile: str = RESERVED_POSIX_PROFILE_NAME,
         provider_bundle: Optional[Union[ProviderBundle, ProviderBundleV2]] = None,
         telemetry_provider: Optional[Callable[[], Telemetry]] = None,
     ) -> None:
@@ -609,19 +626,16 @@ class StorageClientConfigLoader:
 
         self._profiles = config_dict.get("profiles", {})
 
-        if DEFAULT_POSIX_PROFILE_NAME not in self._profiles:
+        if RESERVED_POSIX_PROFILE_NAME not in self._profiles:
             # Assign the default POSIX profile
-            self._profiles[DEFAULT_POSIX_PROFILE_NAME] = DEFAULT_POSIX_PROFILE["profiles"][DEFAULT_POSIX_PROFILE_NAME]
+            self._profiles[RESERVED_POSIX_PROFILE_NAME] = DEFAULT_POSIX_PROFILE["profiles"][RESERVED_POSIX_PROFILE_NAME]
         else:
             # Cannot override default POSIX profile
-            storage_provider_type = (
-                self._profiles[DEFAULT_POSIX_PROFILE_NAME].get("storage_provider", {}).get("type", None)
-            )
-            if storage_provider_type != "file":
-                raise ValueError(
-                    f'Cannot override "{DEFAULT_POSIX_PROFILE_NAME}" profile with storage provider type '
-                    f'"{storage_provider_type}"; expected "file".'
-                )
+            if (
+                self._profiles[RESERVED_POSIX_PROFILE_NAME]
+                != DEFAULT_POSIX_PROFILE["profiles"][RESERVED_POSIX_PROFILE_NAME]
+            ):
+                raise ValueError(f'Cannot override "{RESERVED_POSIX_PROFILE_NAME}" profile with different settings.')
 
         profile_dict = self._profiles.get(profile)
 
@@ -1353,7 +1367,7 @@ class StorageClientConfig:
     @staticmethod
     def from_json(
         config_json: str,
-        profile: str = DEFAULT_POSIX_PROFILE_NAME,
+        profile: str = RESERVED_POSIX_PROFILE_NAME,
         telemetry_provider: Optional[Callable[[], Telemetry]] = None,
     ) -> "StorageClientConfig":
         """
@@ -1371,7 +1385,7 @@ class StorageClientConfig:
     @staticmethod
     def from_yaml(
         config_yaml: str,
-        profile: str = DEFAULT_POSIX_PROFILE_NAME,
+        profile: str = RESERVED_POSIX_PROFILE_NAME,
         telemetry_provider: Optional[Callable[[], Telemetry]] = None,
     ) -> "StorageClientConfig":
         """
@@ -1381,7 +1395,7 @@ class StorageClientConfig:
         :param profile: Profile to use.
         :param telemetry_provider: A function that provides a telemetry instance. The function must be defined at the top level of a module to work with pickling.
         """
-        config_dict = yaml.safe_load(config_yaml)
+        config_dict = yaml.safe_load(config_yaml) or {}
         return StorageClientConfig.from_dict(
             config_dict=config_dict, profile=profile, telemetry_provider=telemetry_provider
         )
@@ -1389,7 +1403,7 @@ class StorageClientConfig:
     @staticmethod
     def from_dict(
         config_dict: dict[str, Any],
-        profile: str = DEFAULT_POSIX_PROFILE_NAME,
+        profile: str = RESERVED_POSIX_PROFILE_NAME,
         skip_validation: bool = False,
         telemetry_provider: Optional[Callable[[], Telemetry]] = None,
     ) -> "StorageClientConfig":
@@ -1407,7 +1421,9 @@ class StorageClientConfig:
 
         # Load config
         loader = StorageClientConfigLoader(
-            config_dict=config_dict, profile=profile, telemetry_provider=telemetry_provider
+            config_dict=config_dict,
+            profile=_normalize_profile_name(profile, config_dict),
+            telemetry_provider=telemetry_provider,
         )
         config = loader.build_config()
 
@@ -1416,7 +1432,7 @@ class StorageClientConfig:
     @staticmethod
     def from_file(
         config_file_paths: Optional[Iterable[str]] = None,
-        profile: str = DEFAULT_POSIX_PROFILE_NAME,
+        profile: str = RESERVED_POSIX_PROFILE_NAME,
         telemetry_provider: Optional[Callable[[], Telemetry]] = None,
     ) -> "StorageClientConfig":
         """
@@ -1444,8 +1460,8 @@ class StorageClientConfig:
                 config_dict=merged_config, profile=profile, telemetry_provider=telemetry_provider
             )
         else:
-            # Check if profile is the default profile or an implicit profile
-            if profile == DEFAULT_POSIX_PROFILE_NAME:
+            # Check if profile is the default POSIX profile or an implicit profile
+            if profile == RESERVED_POSIX_PROFILE_NAME or profile == LEGACY_POSIX_PROFILE_NAME:
                 implicit_profile_config = DEFAULT_POSIX_PROFILE
             elif profile.startswith("_"):
                 # Handle implicit profiles

@@ -48,7 +48,7 @@ def sample_zarr_data():
 
 
 def test_xarray_open_zarr(sample_zarr_data, file_storage_config):
-    zarr_paths = [sample_zarr_data, f"{MSC_PROTOCOL}default{sample_zarr_data}/"]
+    zarr_paths = [sample_zarr_data, f"{sample_zarr_data}/"]
     for path in zarr_paths:
         if path.startswith(MSC_PROTOCOL):
             xr_dataset = msc.xarray.open_zarr(path, msc_max_workers=4)

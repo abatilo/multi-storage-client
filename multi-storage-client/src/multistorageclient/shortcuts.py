@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 import threading
 from collections.abc import Callable, Iterator
@@ -20,7 +21,7 @@ from typing import Any, Optional, Union
 from urllib.parse import ParseResult, urlparse
 
 from .client import StorageClient
-from .config import DEFAULT_POSIX_PROFILE_NAME, SUPPORTED_IMPLICIT_PROFILE_PROTOCOLS, StorageClientConfig
+from .config import RESERVED_POSIX_PROFILE_NAME, SUPPORTED_IMPLICIT_PROFILE_PROTOCOLS, StorageClientConfig
 from .file import ObjectFile, PosixFile
 from .telemetry import Telemetry
 from .types import MSC_PROTOCOL, ExecutionMode, ObjectMetadata, PatternList, SyncResult
@@ -30,6 +31,8 @@ _TELEMETRY_PROVIDER_LOCK = threading.Lock()
 _STORAGE_CLIENT_CACHE: dict[str, StorageClient] = {}
 _STORAGE_CLIENT_CACHE_LOCK = threading.Lock()
 _PROCESS_ID = os.getpid()
+
+logger = logging.getLogger(__name__)
 
 
 def _reinitialize_after_fork() -> None:
@@ -137,8 +140,7 @@ def _resolve_non_msc_url(url: str) -> tuple[str, str]:
     Resolution process:
     1. First check if MSC config exists
     2. If config exists, check for possible path mapping
-    3. If no mapping is found, fall back to default POSIX profile
-       for file paths or create an implicit profile based on URL
+    3. If no mapping is found, fall back to the reserved POSIX profile (``__filesystem__``) for file paths or create an implicit profile based on URL
 
     :param url: The non-MSC URL to resolve
     :return: A tuple of (profile_name, path)
@@ -154,10 +156,10 @@ def _resolve_non_msc_url(url: str) -> tuple[str, str]:
     # For file paths, use the default POSIX profile
     if url.startswith("file://"):
         pr = urlparse(url)
-        return DEFAULT_POSIX_PROFILE_NAME, _build_full_path(url, pr)
+        return RESERVED_POSIX_PROFILE_NAME, _build_full_path(url, pr)
     elif url.startswith("/"):
         url = os.path.normpath(url)
-        return DEFAULT_POSIX_PROFILE_NAME, url
+        return RESERVED_POSIX_PROFILE_NAME, url
 
     # For other URL protocol, create an implicit profile name
     pr = urlparse(url)
@@ -165,7 +167,7 @@ def _resolve_non_msc_url(url: str) -> tuple[str, str]:
 
     # Translate relative paths to absolute paths
     if not protocol:
-        return DEFAULT_POSIX_PROFILE_NAME, os.path.realpath(url)
+        return RESERVED_POSIX_PROFILE_NAME, os.path.realpath(url)
 
     # Validate the protocol is supported
     if protocol not in SUPPORTED_IMPLICIT_PROFILE_PROTOCOLS:
@@ -281,7 +283,7 @@ def glob(pattern: str, attribute_filter_expression: Optional[str] = None) -> lis
     :raises ValueError: If the URL's protocol does not match the expected protocol ``msc``.
     """
     client, path = resolve_storage_client(pattern)
-    if not pattern.startswith(MSC_PROTOCOL) and client.profile == DEFAULT_POSIX_PROFILE_NAME:
+    if not pattern.startswith(MSC_PROTOCOL) and client.profile == RESERVED_POSIX_PROFILE_NAME:
         return client.glob(path, include_url_prefix=False, attribute_filter_expression=attribute_filter_expression)
     else:
         return client.glob(path, include_url_prefix=True, attribute_filter_expression=attribute_filter_expression)

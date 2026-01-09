@@ -45,9 +45,9 @@ def test_resolve_storage_client(file_storage_config):
     # Verify the three ways to access local filesystem are the same
     sc1, _ = msc.resolve_storage_client("/usr/local/fake/bucket/testfile.bin")
     sc2, _ = msc.resolve_storage_client("file:///usr/local/fake/bucket/testfile.bin")
-    sc3, _ = msc.resolve_storage_client("msc://default/usr/local/fake/bucket/testfile.bin")
+    sc3, _ = msc.resolve_storage_client("msc://__filesystem__/usr/local/fake/bucket/testfile.bin")
     assert sc1 == sc2 == sc3
-    assert sc1.profile == sc2.profile == sc3.profile == "default"
+    assert sc1.profile == sc2.profile == sc3.profile == "__filesystem__"
 
     # verify that path works with multiple slashes
     _, p1 = msc.resolve_storage_client("/etc/")
@@ -57,13 +57,13 @@ def test_resolve_storage_client(file_storage_config):
     assert p1 == p3 == "/etc"
 
     # verify that path works with special characters
-    _, p4 = msc.resolve_storage_client("msc://default/tmp/data-#!-_.*'()&$@=;/:+,?\\{{}}%`]<>~|#.bin")
+    _, p4 = msc.resolve_storage_client("msc://__filesystem__/tmp/data-#!-_.*'()&$@=;/:+,?\\{{}}%`]<>~|#.bin")
     assert p4 == "tmp/data-#!-_.*'()&$@=;/:+,?\\{{}}%`]<>~|#.bin"
 
     _, p5 = msc.resolve_storage_client("file:///tmp/data-#!-_.*'()&$@=;/:+,?\\{{}}%`]<>~|#.bin")
     assert p5 == "/tmp/data-#!-_.*'()&$@=;/:+,?\\{{}}%`]<>~|#.bin"
 
-    _, p6 = msc.resolve_storage_client("msc:/default/etc/resolv.conf")
+    _, p6 = msc.resolve_storage_client("msc:/__filesystem__/etc/resolv.conf")
     assert p6 == "etc/resolv.conf"
 
     _, p7 = msc.resolve_storage_client("./workspace/datasets")
@@ -72,7 +72,7 @@ def test_resolve_storage_client(file_storage_config):
     # Multithreading test to verify the storage_client instance is the same
     def storage_client_thread(number: int) -> tuple[StorageClient, str]:
         tempdir = tempfile.mkdtemp()
-        storage_client, path = msc.resolve_storage_client(f"{MSC_PROTOCOL}default{tempdir}/testfile.bin")
+        storage_client, path = msc.resolve_storage_client(f"{MSC_PROTOCOL}__filesystem__{tempdir}/testfile.bin")
         return storage_client, path
 
     num_threads = 32
@@ -88,7 +88,7 @@ def test_resolve_storage_client_with_trailing_question_mark(file_storage_config)
     """Test that URLs with trailing '?' are handled correctly."""
 
     # Test file URL with trailing "?" - should be treated as part of the filename
-    _, path = msc.resolve_storage_client("msc://default/tmp/data/file1.tx?")
+    _, path = msc.resolve_storage_client("msc://__filesystem__/tmp/data/file1.tx?")
     assert path == "tmp/data/file1.tx?"
 
     # Test POSIX path with trailing "?" - should be treated as part of the filename
@@ -100,7 +100,7 @@ def test_glob_with_posix_path(file_storage_config):
     for filepath in msc.glob("/etc/**/*.conf"):
         assert filepath.startswith("msc://") is False
 
-    for filepath in msc.glob("msc://default/etc/**/*.conf"):
+    for filepath in msc.glob("msc://__filesystem__/etc/**/*.conf"):
         assert filepath.startswith("msc://")
 
     # Test that glob works with multiple slashes which is common in POSIX paths.
@@ -112,18 +112,18 @@ def test_open_url(file_storage_config):
     body = b"A" * 64 * MB
     tempdir = tempfile.mkdtemp()
 
-    fp = msc.open(f"{MSC_PROTOCOL}default{tempdir}/testfile.bin", "wb")
+    fp = msc.open(f"{MSC_PROTOCOL}__filesystem__{tempdir}/testfile.bin", "wb")
     fp.write(body)
     fp.close()
 
-    fp = msc.open(f"{MSC_PROTOCOL}default{tempdir}/testfile.bin", "rb")
+    fp = msc.open(f"{MSC_PROTOCOL}__filesystem__{tempdir}/testfile.bin", "rb")
     content = fp.read()
     fp.close()
     assert body == content
 
-    results = msc.glob(f"{MSC_PROTOCOL}default{tempdir}/*.bin")
+    results = msc.glob(f"{MSC_PROTOCOL}__filesystem__{tempdir}/*.bin")
     assert len(results) == 1
-    assert results[0] == f"{MSC_PROTOCOL}default{tempdir}/testfile.bin"
+    assert results[0] == f"{MSC_PROTOCOL}__filesystem__{tempdir}/testfile.bin"
 
 
 def test_download_file(file_storage_config):
@@ -131,7 +131,7 @@ def test_download_file(file_storage_config):
     tempdir = tempfile.mkdtemp()
 
     # Write to a test file
-    remote_file_path = f"{MSC_PROTOCOL}default{tempdir}/testfile.bin"
+    remote_file_path = f"{MSC_PROTOCOL}__filesystem__{tempdir}/testfile.bin"
     fp = msc.open(remote_file_path, "wb")
     fp.write(body)
     fp.close()
@@ -142,14 +142,14 @@ def test_download_file(file_storage_config):
     local_file_path = f"{local_tempdir}/testfile.bin"
     msc.download_file(url=remote_file_path, local_path=local_file_path)
 
-    fp = msc.open(f"{MSC_PROTOCOL}default{local_file_path}", "rb")
+    fp = msc.open(f"{MSC_PROTOCOL}__filesystem__{local_file_path}", "rb")
     content = fp.read()
     fp.close()
     assert body == content
 
-    results = msc.glob(f"{MSC_PROTOCOL}default{local_tempdir}/*.bin")
+    results = msc.glob(f"{MSC_PROTOCOL}__filesystem__{local_tempdir}/*.bin")
     assert len(results) == 1
-    assert results[0] == f"{MSC_PROTOCOL}default{local_tempdir}/testfile.bin"
+    assert results[0] == f"{MSC_PROTOCOL}__filesystem__{local_tempdir}/testfile.bin"
 
 
 def test_list(file_storage_config):
@@ -157,12 +157,12 @@ def test_list(file_storage_config):
     body = b"A" * 64 * MB
     tempdir = tempfile.mkdtemp()
 
-    fp = msc.open(f"{MSC_PROTOCOL}default{tempdir}/testfile.bin", "wb")
+    fp = msc.open(f"{MSC_PROTOCOL}__filesystem__{tempdir}/testfile.bin", "wb")
     fp.write(body)
     fp.close()
 
     # Test listing without glob pattern
-    results = list(msc.list(f"{MSC_PROTOCOL}default{tempdir}"))
+    results = list(msc.list(f"{MSC_PROTOCOL}__filesystem__{tempdir}"))
     assert len(results) == 1
     assert "testfile.bin" in results[0].key
 
@@ -170,14 +170,14 @@ def test_list(file_storage_config):
     results = list(msc.list(tempdir))
     assert len(results) == 1
     assert "testfile.bin" in results[0].key
-    assert f"{MSC_PROTOCOL}default" not in results[0].key
+    assert f"{MSC_PROTOCOL}__filesystem__" not in results[0].key
 
     # Test listing with include/exclude patterns
-    results = list(msc.list(f"{MSC_PROTOCOL}default{tempdir}", patterns=[(PatternType.INCLUDE, "*.bin")]))
+    results = list(msc.list(f"{MSC_PROTOCOL}__filesystem__{tempdir}", patterns=[(PatternType.INCLUDE, "*.bin")]))
     assert len(results) == 1
     assert "testfile.bin" in results[0].key
 
-    results = list(msc.list(f"{MSC_PROTOCOL}default{tempdir}", patterns=[(PatternType.INCLUDE, "*.txt")]))
+    results = list(msc.list(f"{MSC_PROTOCOL}__filesystem__{tempdir}", patterns=[(PatternType.INCLUDE, "*.txt")]))
     assert len(results) == 0
 
 
@@ -187,10 +187,10 @@ def test_write(file_storage_config):
 
     # Test writing bytes
     body = b"A" * 64 * MB
-    msc.write(f"{MSC_PROTOCOL}default{filepath}", body)
+    msc.write(f"{MSC_PROTOCOL}__filesystem__{filepath}", body)
 
     # Verify content was written correctly
-    with msc.open(f"{MSC_PROTOCOL}default{filepath}", "rb") as fp:
+    with msc.open(f"{MSC_PROTOCOL}__filesystem__{filepath}", "rb") as fp:
         content = fp.read()
         assert body == content
 
@@ -201,19 +201,19 @@ def test_delete(file_storage_config):
 
     # Create test file
     body = b"A" * 64 * MB
-    with msc.open(f"{MSC_PROTOCOL}default{filepath}", "wb") as fp:
+    with msc.open(f"{MSC_PROTOCOL}__filesystem__{filepath}", "wb") as fp:
         fp.write(body)
 
     # Verify file exists
-    with msc.open(f"{MSC_PROTOCOL}default{filepath}", "rb") as fp:
+    with msc.open(f"{MSC_PROTOCOL}__filesystem__{filepath}", "rb") as fp:
         assert fp.read() == body
 
     # Delete file
-    msc.delete(f"{MSC_PROTOCOL}default{filepath}")
+    msc.delete(f"{MSC_PROTOCOL}__filesystem__{filepath}")
 
     # Verify file is deleted
     with pytest.raises(FileNotFoundError):
-        with msc.open(f"{MSC_PROTOCOL}default{filepath}", "rb") as fp:
+        with msc.open(f"{MSC_PROTOCOL}__filesystem__{filepath}", "rb") as fp:
             fp.read()
 
 
@@ -226,7 +226,7 @@ def test_is_empty(file_storage_config):
         with msc.open(filepath, "wb") as fp:
             fp.write(b"TEST")
 
-        assert msc.is_empty(f"{MSC_PROTOCOL}default{tempdir}") is False
+        assert msc.is_empty(f"{MSC_PROTOCOL}__filesystem__{tempdir}") is False
 
 
 def verify_shortcuts(profile: str, prefix: str):
@@ -438,16 +438,19 @@ def test_download_and_sync_files(file_storage_config):
 
     # Write three test files
     for file_name in file_names:
-        remote_file_path = f"{MSC_PROTOCOL}default{tempdir}/{file_name}"
+        remote_file_path = f"{MSC_PROTOCOL}__filesystem__{tempdir}/{file_name}"
         with msc.open(remote_file_path, "wb") as fp:
             fp.write(body)
         assert msc.is_file(url=remote_file_path)
 
     # Sync to a different destination directory
     sync_dest_tempdir = tempfile.mkdtemp()
-    msc.sync(source_url=f"{MSC_PROTOCOL}default{tempdir}/", target_url=f"{MSC_PROTOCOL}default{sync_dest_tempdir}/")
+    msc.sync(
+        source_url=f"{MSC_PROTOCOL}__filesystem__{tempdir}/",
+        target_url=f"{MSC_PROTOCOL}__filesystem__{sync_dest_tempdir}/",
+    )
 
-    expected_synced_files = [f"{MSC_PROTOCOL}default{sync_dest_tempdir}/{file_name}" for file_name in file_names]
+    expected_synced_files = [f"{MSC_PROTOCOL}__filesystem__{sync_dest_tempdir}/{file_name}" for file_name in file_names]
 
     for synced_file in expected_synced_files:
         with msc.open(synced_file, "rb") as fp:
@@ -455,7 +458,10 @@ def test_download_and_sync_files(file_storage_config):
         assert synced_content == body
 
     # Test, by syncing again and verify the data hasn't changed?
-    msc.sync(source_url=f"{MSC_PROTOCOL}default{tempdir}/", target_url=f"{MSC_PROTOCOL}default{sync_dest_tempdir}/")
+    msc.sync(
+        source_url=f"{MSC_PROTOCOL}__filesystem__{tempdir}/",
+        target_url=f"{MSC_PROTOCOL}__filesystem__{sync_dest_tempdir}/",
+    )
 
 
 def test_explicit_path_translation(file_storage_config_with_path_mapping):
@@ -516,12 +522,12 @@ def test_implicit_profiles_without_msc_config():
 
         # Test file implicit profile
         client, path = msc.resolve_storage_client("file:///path/to/file")
-        assert client.profile == "default"
+        assert client.profile == "__filesystem__"
         assert path == "/path/to/file"
 
         # Test posix implicit profile
         client, path = msc.resolve_storage_client("/path/to/file")
-        assert client.profile == "default"
+        assert client.profile == "__filesystem__"
         assert path == "/path/to/file"
 
         # Comment out for now because GCS requires credentials json to be present locally
@@ -556,7 +562,7 @@ def test_implicit_profiles_with_msc_config(file_storage_config_with_path_mapping
     try:
         # Test Case 1: File Path that doesn't match any translation - should use default
         client, path = msc.resolve_storage_client("/tmp/some/path/file.txt")
-        assert client.profile == "default"
+        assert client.profile == "__filesystem__"
         assert path == "/tmp/some/path/file.txt"
 
         # Test Case 2: s3 Path that doesn't match any translation - should use implicit profile
@@ -1332,7 +1338,7 @@ def test_fork_safety_cache_and_locks_reinitialized(file_storage_config):
 
         # Verify parent cache is still intact
         assert len(msc.shortcuts._STORAGE_CLIENT_CACHE) == 1
-        assert msc.shortcuts._STORAGE_CLIENT_CACHE["default"] is parent_client
+        assert msc.shortcuts._STORAGE_CLIENT_CACHE["__filesystem__"] is parent_client
 
         # Verify parent still has the telemetry provider
         assert msc.get_telemetry_provider() is dummy_telemetry_provider
@@ -1347,21 +1353,21 @@ def test_fork_safety_resolve_storage_client_works(file_storage_config):
     msc.shortcuts._STORAGE_CLIENT_CACHE.clear()
 
     # Create a client in parent
-    parent_client, parent_path = msc.resolve_storage_client("msc://default/tmp/parent_file.txt")
+    parent_client, parent_path = msc.resolve_storage_client("msc://__filesystem__/tmp/parent_file.txt")
     assert parent_path == "tmp/parent_file.txt"
 
     pid = os.fork()
     if pid == 0:
         try:
             # In child, resolve_storage_client should work without deadlock
-            child_client, child_path = msc.resolve_storage_client("msc://default/tmp/child_file.txt")
+            child_client, child_path = msc.resolve_storage_client("msc://__filesystem__/tmp/child_file.txt")
             assert child_path == "tmp/child_file.txt"
 
             # Verify it's a different instance than parent
             assert child_client is not parent_client
 
             # Verify subsequent calls return the same instance
-            child_client2, _ = msc.resolve_storage_client("msc://default/tmp/another_file.txt")
+            child_client2, _ = msc.resolve_storage_client("msc://__filesystem__/tmp/another_file.txt")
             assert child_client2 is child_client
 
             os._exit(0)
