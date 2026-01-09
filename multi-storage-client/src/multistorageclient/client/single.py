@@ -786,12 +786,10 @@ class SingleStorageClient(AbstractStorageClient):
         if self._metadata_provider:
             with self._metadata_provider_lock or contextlib.nullcontext():
                 if prefix:
-                    # The logical path for each item will be the physical path with
-                    # the base physical path removed from the beginning.
-                    base_resolved = self._metadata_provider.realpath("")
+                    base_resolved = self._metadata_provider.generate_physical_path("")
                     physical_base = base_resolved.physical_path
 
-                    prefix_resolved = self._metadata_provider.realpath(prefix)
+                    prefix_resolved = self._metadata_provider.generate_physical_path(prefix)
                     physical_prefix = prefix_resolved.physical_path
 
                     for obj in self._storage_provider.list_objects(physical_prefix):

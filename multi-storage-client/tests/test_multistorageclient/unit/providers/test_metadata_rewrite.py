@@ -82,12 +82,12 @@ class UuidMetadataProvider(MetadataProvider):
         if u:
             if logical_path in self._deleted_files:
                 # File exists in metadata but is soft-deleted
-                return ResolvedPath(physical_path=u, state=ResolvedPathState.DELETED, profile=None)
+                return ResolvedPath(physical_path="", state=ResolvedPathState.DELETED, profile=None)
             else:
                 # File exists and is not deleted
                 return ResolvedPath(physical_path=u, state=ResolvedPathState.EXISTS, profile=None)
         # File never existed
-        return ResolvedPath(physical_path=logical_path, state=ResolvedPathState.UNTRACKED, profile=None)
+        return ResolvedPath(physical_path="", state=ResolvedPathState.UNTRACKED, profile=None)
 
     def generate_physical_path(self, logical_path: str, for_overwrite: bool = False) -> ResolvedPath:
         """Generates a new UUID-based physical path."""
@@ -415,9 +415,9 @@ def test_soft_delete_enabled(temp_data_store_type: type[tempdatastore.TemporaryD
         # Verify the file returns DELETED state
         resolved_after_delete = metadata_provider.realpath(test_file_path)
         assert resolved_after_delete.state == ResolvedPathState.DELETED
-        assert resolved_after_delete.physical_path == physical_path
 
         # CRITICAL: Verify physical file still exists in storage (soft-delete)
+        # Use the physical_path captured before deletion to verify the file still exists
         physical_metadata_after = storage_provider.get_object_metadata(physical_path)
         assert physical_metadata_after is not None, "Physical file should still exist after soft-delete"
 
