@@ -19,8 +19,8 @@ import time
 from typing import Optional, cast
 
 from multistorageclient.client import StorageClient
-from multistorageclient.progress_bar import ProgressBar
 from multistorageclient.sync.monitors import ErrorMonitorThread, ResultMonitorThread
+from multistorageclient.sync.progress_bar import ProgressBar
 from multistorageclient.sync.types import ErrorInfo, OperationType
 
 

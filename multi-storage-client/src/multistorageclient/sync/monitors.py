@@ -17,7 +17,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
-from ..progress_bar import ProgressBar
+from .progress_bar import ProgressBar
 from .types import EventLike, OperationType, QueueLike
 
 if TYPE_CHECKING:

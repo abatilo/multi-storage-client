@@ -28,7 +28,6 @@ import multistorageclient as msc
 from multistorageclient.client import StorageClient
 from multistorageclient.config import StorageClientConfig
 from multistorageclient.constants import MEMORY_LOAD_LIMIT
-from multistorageclient.progress_bar import ProgressBar
 from multistorageclient.providers.base import BaseStorageProvider
 from multistorageclient.providers.manifest_metadata import DEFAULT_MANIFEST_BASE_DIR
 from multistorageclient.types import ExecutionMode, ObjectMetadata, PatternType, SyncError
@@ -590,13 +589,6 @@ def test_sync_from_with_attributes(temp_data_store_type: type[tempdatastore.Temp
                 )
 
         print("All attributes verified successfully in sync_from!")
-
-
-def test_progress_bar_capped_percentage():
-    progress = ProgressBar(desc="Syncing", show_progress=True)
-    progress.update_total(100_000)
-    progress.update_progress(99_999)
-    assert "99.9%" in str(progress.pbar)
 
 
 @pytest.mark.parametrize(

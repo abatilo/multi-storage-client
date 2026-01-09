@@ -21,8 +21,8 @@ from typing import Optional, cast
 
 import multistorageclient as msc
 from multistorageclient.client import StorageClient
-from multistorageclient.progress_bar import ProgressBar
 from multistorageclient.sync.producer import ProducerThread
+from multistorageclient.sync.progress_bar import ProgressBar
 from multistorageclient.types import ObjectMetadata
 from multistorageclient.utils import NullStorageClient
 from test_multistorageclient.unit.utils import config

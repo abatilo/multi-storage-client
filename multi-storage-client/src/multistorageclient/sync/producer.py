@@ -18,9 +18,9 @@ import os
 import threading
 from typing import TYPE_CHECKING, Optional
 
-from ..progress_bar import ProgressBar
 from ..types import ObjectMetadata
 from ..utils import PatternMatcher
+from .progress_bar import ProgressBar
 from .types import EventLike, OperationType, QueueLike
 
 if TYPE_CHECKING:

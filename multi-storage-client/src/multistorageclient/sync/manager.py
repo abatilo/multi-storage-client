@@ -21,11 +21,11 @@ import threading
 import time
 from typing import TYPE_CHECKING, Optional
 
-from ..progress_bar import ProgressBar
 from ..types import ExecutionMode, SyncError, SyncResult
 from ..utils import PatternMatcher, calculate_worker_processes_and_threads
 from .monitors import ErrorMonitorThread, ResultMonitorThread
 from .producer import ProducerThread
+from .progress_bar import ProgressBar
 from .types import OperationType
 from .worker import _sync_worker_process
 
@@ -159,7 +159,7 @@ class SyncManager:
 
             from ..contrib.ray.utils import SharedEvent, SharedQueue
 
-            file_queue = SharedQueue(maxsize=100000)
+            file_queue = SharedQueue(maxsize=1_000_000)
             result_queue = SharedQueue()
             error_queue = SharedQueue()
             shutdown_event = SharedEvent()

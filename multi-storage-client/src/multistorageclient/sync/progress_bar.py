@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import time
 from typing import Any
 
 from tqdm import tqdm
@@ -46,22 +47,33 @@ class ProgressBar:
 
         if not show_progress:
             self.pbar = None
+            self._last_total_update_time = 0.0
             return
 
         # Initialize progress bar based on the 'total_items' provided at creation.
         bar_format = "{desc}: {percentage:3.1f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}{postfix}]"
         self.pbar = CappedProgressBar(
-            total=total_items, desc=desc, bar_format=bar_format, file=sys.stderr, dynamic_ncols=True, position=0
+            total=total_items,
+            desc=desc,
+            bar_format=bar_format,
+            file=sys.stderr,
+            dynamic_ncols=True,
+            position=0,
+            mininterval=1.0,  # Throttle update() calls to at most 1 refresh per second
+            miniters=1,  # Check throttling on every update
         )
+        self._last_total_update_time = time.time()
 
     def update_total(self, new_total: int) -> None:
-        # Dynamically update the total work and refresh the progress bar.
         if self.pbar is not None:
             self.pbar.total = new_total
-            self.pbar.refresh()
+            # Custom throttling for update_total since it doesn't go through update()
+            current_time = time.time()
+            if current_time - self._last_total_update_time >= 1.0:
+                self.pbar.refresh()
+                self._last_total_update_time = current_time
 
     def update_progress(self, items_completed: int = 1) -> None:
-        # Update the progress bar, if it exists.
         if self.pbar is not None:
             self.pbar.update(items_completed)
 
@@ -80,6 +92,7 @@ class ProgressBar:
 
     def close(self) -> None:
         if self.pbar is not None:
+            self.pbar.refresh()
             self.pbar.close()
 
     def __enter__(self) -> "ProgressBar":
