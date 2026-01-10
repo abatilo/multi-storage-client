@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import concurrent.futures
 import contextlib
 import json
 import logging
 import os
 import shutil
 import tempfile
-import threading
 import traceback
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, Union, cast
@@ -41,6 +41,143 @@ DEFAULT_LOCK_TIMEOUT = 600  # 10 minutes
 FILE_LOCK_SIZE_THRESHOLD = 64 * 1024 * 1024  # 64 MB - only lock files larger than this
 
 
+def _process_single_sync_operation(
+    worker_id: str,
+    source_client: "AbstractStorageClient",
+    source_path: str,
+    target_client: "AbstractStorageClient",
+    target_path: str,
+    file_metadata: ObjectMetadata,
+    op: OperationType,
+    result_queue: QueueLike,
+    error_queue: QueueLike,
+) -> None:
+    """Process a single sync operation (ADD or DELETE) for one file."""
+    source_key = file_metadata.key[len(source_path) :].lstrip("/")
+    target_file_path = os.path.join(target_path, source_key)
+
+    try:
+        if op == OperationType.ADD:
+            logger.debug(f"sync {file_metadata.key} -> {target_file_path}")
+            with _create_exclusive_filelock(target_client, target_file_path, file_metadata.content_length):
+                target_metadata = None
+                if not target_client._storage_provider:
+                    raise RuntimeError("Invalid state, no storage provider configured.")
+
+                try:
+                    if target_client._metadata_provider:
+                        resolved = target_client._metadata_provider.realpath(target_file_path)
+                        if resolved.exists:
+                            physical_path = resolved.physical_path
+                        else:
+                            physical_path = target_client._metadata_provider.generate_physical_path(
+                                target_file_path, for_overwrite=False
+                            ).physical_path
+                    else:
+                        physical_path = target_file_path
+
+                    target_metadata = target_client._storage_provider.get_object_metadata(physical_path, strict=False)
+                except FileNotFoundError:
+                    pass
+
+                if target_metadata is not None:
+                    if (
+                        target_metadata.content_length == file_metadata.content_length
+                        and target_metadata.last_modified >= file_metadata.last_modified
+                    ):
+                        logger.debug(f"File {target_file_path} already exists and is up-to-date, skipping copy")
+
+                        if target_client._metadata_provider:
+                            logger.debug(f"Adding existing file {target_file_path} to metadata provider for tracking")
+                            with target_client._metadata_provider_lock or contextlib.nullcontext():
+                                target_client._metadata_provider.add_file(target_file_path, target_metadata)
+
+                        return
+
+                    if target_client._metadata_provider and not target_client._metadata_provider.allow_overwrites():
+                        raise FileExistsError(
+                            f"Cannot sync '{file_metadata.key}' to '{target_file_path}': "
+                            f"file exists and needs updating, but overwrites are not allowed. "
+                            f"Enable overwrites in metadata provider configuration or remove the existing file."
+                        )
+
+                source_physical_path, target_physical_path = _check_posix_paths(
+                    source_client, target_client, file_metadata.key, target_file_path
+                )
+
+                source_is_posix = source_physical_path is not None
+                target_is_posix = target_physical_path is not None
+
+                if source_is_posix and target_is_posix:
+                    _copy_posix_to_posix(source_physical_path, target_physical_path)
+                    _update_posix_metadata(target_client, target_physical_path, target_file_path, file_metadata)
+                elif source_is_posix and not target_is_posix:
+                    _copy_posix_to_remote(target_client, source_physical_path, target_file_path, file_metadata)
+                elif not source_is_posix and target_is_posix:
+                    _copy_remote_to_posix(source_client, file_metadata.key, target_physical_path)
+                    _update_posix_metadata(target_client, target_physical_path, target_file_path, file_metadata)
+                else:
+                    _copy_remote_to_remote(
+                        source_client, target_client, file_metadata.key, target_file_path, file_metadata
+                    )
+
+            if (
+                target_client._is_posix_file_storage_provider()
+                and file_metadata.content_length >= FILE_LOCK_SIZE_THRESHOLD
+            ):
+                try:
+                    target_lock_file_path = os.path.join(
+                        os.path.dirname(target_file_path), f".{os.path.basename(target_file_path)}.lock"
+                    )
+                    lock_path = cast(BaseStorageProvider, target_client._storage_provider)._prepend_base_path(
+                        target_lock_file_path
+                    )
+                    os.remove(lock_path)
+                except OSError:
+                    pass
+
+            if target_client._metadata_provider:
+                physical_metadata = target_client._metadata_provider.get_object_metadata(
+                    target_file_path, include_pending=True
+                )
+            else:
+                physical_metadata = ObjectMetadata(
+                    key=target_file_path,
+                    content_length=file_metadata.content_length,
+                    last_modified=file_metadata.last_modified,
+                    metadata=file_metadata.metadata,
+                )
+            result_queue.put((op, target_file_path, physical_metadata))
+        elif op == OperationType.DELETE:
+            logger.debug(f"rm {file_metadata.key}")
+            target_client.delete(file_metadata.key)
+            physical_metadata = ObjectMetadata(
+                key=target_file_path,
+                content_length=file_metadata.content_length,
+                last_modified=file_metadata.last_modified,
+                metadata=file_metadata.metadata,
+            )
+            result_queue.put((op, target_file_path, physical_metadata))
+        else:
+            raise ValueError(f"Unknown operation: {op}")
+    except Exception as e:
+        if error_queue:
+            error_info = ErrorInfo(
+                worker_id=worker_id,
+                exception_type=type(e).__name__,
+                exception_message=str(e),
+                traceback_str=traceback.format_exc(),
+                file_key=file_metadata.key if file_metadata else None,
+                operation=op.value if op else "unknown",
+            )
+            error_queue.put(error_info)
+        else:
+            logger.error(
+                f"Worker {worker_id}: Exception during {op} on {file_metadata.key}: {e}\n{traceback.format_exc()}"
+            )
+            raise
+
+
 def _sync_worker_process(
     source_client: "AbstractStorageClient",
     source_path: str,
@@ -53,187 +190,55 @@ def _sync_worker_process(
     shutdown_event: EventLike,
 ):
     """
-    Worker process that handles file synchronization operations using multiple threads.
+    Worker process that handles file synchronization operations using a thread pool.
 
     This function is designed to run in a separate process as part of a multiprocessing
-    sync operation. It spawns multiple worker threads that consume sync operations from
-    the file_queue and perform the actual file transfers (ADD) or deletions (DELETE).
+    sync operation. It creates a fixed-size thread pool and consumes batches of sync
+    operations from the file_queue. Each individual operation (ADD or DELETE) from a
+    batch is submitted to the thread pool for concurrent execution.
+
+    The thread pool size is bounded by num_worker_threads, ensuring controlled
+    parallelism. Futures are tracked to ensure all operations complete before shutdown.
 
     Exceptions that occur during file operations are caught, packaged as ErrorInfo
     objects, and sent to the error_queue for centralized error handling. The shutdown_event
     is checked periodically to enable graceful shutdown when errors occur elsewhere.
     """
+    worker_id = f"process-{os.getpid()}"
 
-    def _sync_consumer(thread_id: int) -> None:
-        """Processes files from the queue and copies them."""
-        worker_id = f"process-{os.getpid()}-thread-{thread_id}"
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_worker_threads) as executor:
+        futures = []
 
-        while True:
-            if shutdown_event.is_set():
-                logger.debug(f"Worker {worker_id}: Shutdown event detected, exiting")
+        while not shutdown_event.is_set():
+            batch = file_queue.get()
+
+            if batch.operation == OperationType.STOP:
                 break
 
-            op, file_metadata = file_queue.get()
+            for file_metadata in batch.items:
+                if shutdown_event.is_set():
+                    logger.debug(f"Worker {worker_id}: Shutdown event detected during batch processing, exiting")
+                    break
 
-            if op == OperationType.STOP:
-                break
+                future = executor.submit(
+                    _process_single_sync_operation,
+                    worker_id,
+                    source_client,
+                    source_path,
+                    target_client,
+                    target_path,
+                    file_metadata,
+                    batch.operation,
+                    result_queue,
+                    error_queue,
+                )
+                futures.append(future)
 
-            source_key = file_metadata.key[len(source_path) :].lstrip("/")
-            target_file_path = os.path.join(target_path, source_key)
-
-            try:
-                if op == OperationType.ADD:
-                    logger.debug(f"sync {file_metadata.key} -> {target_file_path}")
-                    with _create_exclusive_filelock(target_client, target_file_path, file_metadata.content_length):
-                        # Since this is an ADD operation, the file doesn't exist in the metadata provider.
-                        # Check if it exists physically to support resume functionality.
-                        target_metadata = None
-                        if not target_client._storage_provider:
-                            raise RuntimeError("Invalid state, no storage provider configured.")
-
-                        try:
-                            # This enables "resume" semantics even when the object exists physically but is not yet
-                            # present in the metadata provider (e.g., partial sync, interrupted run).
-                            if target_client._metadata_provider:
-                                resolved = target_client._metadata_provider.realpath(target_file_path)
-                                if resolved.exists:
-                                    # This should not happen but the check is to keep the code
-                                    # consistent with write/upload behavior
-                                    physical_path = resolved.physical_path
-                                else:
-                                    physical_path = target_client._metadata_provider.generate_physical_path(
-                                        target_file_path, for_overwrite=False
-                                    ).physical_path
-                            else:
-                                physical_path = target_file_path
-
-                            # The physical path cannot be a directory, so we can use strict=False to avoid the check.
-                            target_metadata = target_client._storage_provider.get_object_metadata(
-                                physical_path, strict=False
-                            )
-                        except FileNotFoundError:
-                            pass
-
-                        # If file exists physically, check if sync is needed
-                        if target_metadata is not None:
-                            # First check if file is already up-to-date (optimization for all cases)
-                            if (
-                                target_metadata.content_length == file_metadata.content_length
-                                and target_metadata.last_modified >= file_metadata.last_modified
-                            ):
-                                logger.debug(f"File {target_file_path} already exists and is up-to-date, skipping copy")
-
-                                # Since this is an ADD operation, the file exists physically but not in metadata provider.
-                                # Add it to metadata provider for tracking.
-                                if target_client._metadata_provider:
-                                    logger.debug(
-                                        f"Adding existing file {target_file_path} to metadata provider for tracking"
-                                    )
-                                    with target_client._metadata_provider_lock or contextlib.nullcontext():
-                                        target_client._metadata_provider.add_file(target_file_path, target_metadata)
-
-                                continue
-
-                            # If we reach here, file exists but needs updating - check if overwrites are allowed
-                            if (
-                                target_client._metadata_provider
-                                and not target_client._metadata_provider.allow_overwrites()
-                            ):
-                                raise FileExistsError(
-                                    f"Cannot sync '{file_metadata.key}' to '{target_file_path}': "
-                                    f"file exists and needs updating, but overwrites are not allowed. "
-                                    f"Enable overwrites in metadata provider configuration or remove the existing file."
-                                )
-
-                        source_physical_path, target_physical_path = _check_posix_paths(
-                            source_client, target_client, file_metadata.key, target_file_path
-                        )
-
-                        source_is_posix = source_physical_path is not None
-                        target_is_posix = target_physical_path is not None
-
-                        if source_is_posix and target_is_posix:
-                            _copy_posix_to_posix(source_physical_path, target_physical_path)
-                            _update_posix_metadata(target_client, target_physical_path, target_file_path, file_metadata)
-                        elif source_is_posix and not target_is_posix:
-                            _copy_posix_to_remote(target_client, source_physical_path, target_file_path, file_metadata)
-                        elif not source_is_posix and target_is_posix:
-                            _copy_remote_to_posix(source_client, file_metadata.key, target_physical_path)
-                            _update_posix_metadata(target_client, target_physical_path, target_file_path, file_metadata)
-                        else:
-                            _copy_remote_to_remote(
-                                source_client, target_client, file_metadata.key, target_file_path, file_metadata
-                            )
-
-                    # Clean up the lock file for large files on POSIX file storage providers
-                    if (
-                        target_client._is_posix_file_storage_provider()
-                        and file_metadata.content_length >= FILE_LOCK_SIZE_THRESHOLD
-                    ):
-                        try:
-                            target_lock_file_path = os.path.join(
-                                os.path.dirname(target_file_path), f".{os.path.basename(target_file_path)}.lock"
-                            )
-                            lock_path = cast(BaseStorageProvider, target_client._storage_provider)._prepend_base_path(
-                                target_lock_file_path
-                            )
-                            os.remove(lock_path)
-                        except OSError:
-                            # Lock file might already be removed or not accessible
-                            pass
-
-                    # add tuple of (virtual_path, physical_metadata) to result_queue
-                    if target_client._metadata_provider:
-                        physical_metadata = target_client._metadata_provider.get_object_metadata(
-                            target_file_path, include_pending=True
-                        )
-                    else:
-                        physical_metadata = ObjectMetadata(
-                            key=target_file_path,
-                            content_length=file_metadata.content_length,
-                            last_modified=file_metadata.last_modified,
-                            metadata=file_metadata.metadata,
-                        )
-                    result_queue.put((op, target_file_path, physical_metadata))
-                elif op == OperationType.DELETE:
-                    logger.debug(f"rm {file_metadata.key}")
-                    target_client.delete(file_metadata.key)
-                    physical_metadata = ObjectMetadata(
-                        key=target_file_path,
-                        content_length=file_metadata.content_length,
-                        last_modified=file_metadata.last_modified,
-                        metadata=file_metadata.metadata,
-                    )
-                    result_queue.put((op, target_file_path, physical_metadata))
-                else:
-                    raise ValueError(f"Unknown operation: {op}")
-            except Exception as e:
-                if error_queue:
-                    error_info = ErrorInfo(
-                        worker_id=worker_id,
-                        exception_type=type(e).__name__,
-                        exception_message=str(e),
-                        traceback_str=traceback.format_exc(),
-                        file_key=file_metadata.key if file_metadata else None,
-                        operation=op.value if op else "unknown",
-                    )
-                    error_queue.put(error_info)
-                else:
-                    logger.error(
-                        f"Worker {worker_id}: Exception during {op} on {file_metadata.key}: {e}\n{traceback.format_exc()}"
-                    )
-                    raise
-
-    # Worker process that spawns threads to handle syncing.
-    threads = []
-    for thread_id in range(num_worker_threads):
-        thread = threading.Thread(target=_sync_consumer, args=(thread_id,), daemon=True)
-        thread.start()
-        threads.append(thread)
-
-    # Wait for all threads to complete
-    for thread in threads:
-        thread.join()
+                logger.debug(f"Worker {worker_id}: Waiting for {len(futures)} operations to complete")
+                concurrent.futures.wait(futures)
+                futures.clear()
+        else:
+            logger.debug(f"Worker {worker_id}: Shutdown event detected, exiting")
 
 
 def _create_exclusive_filelock(

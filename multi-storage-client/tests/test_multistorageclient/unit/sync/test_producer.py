@@ -21,8 +21,9 @@ from typing import Optional, cast
 
 import multistorageclient as msc
 from multistorageclient.client import StorageClient
-from multistorageclient.sync.producer import ProducerThread
+from multistorageclient.sync.producer import MAX_BATCH_SIZE, MIN_BATCH_SIZE, ProducerThread
 from multistorageclient.sync.progress_bar import ProgressBar
+from multistorageclient.sync.types import OperationType
 from multistorageclient.types import ObjectMetadata
 from multistorageclient.utils import NullStorageClient
 from test_multistorageclient.unit.utils import config
@@ -43,6 +44,19 @@ def _setup_test_clients(posix_profile: str, remote_profile: str, temp_posix, tem
     return posix_client, remote_client
 
 
+def _get_all_operations_from_queue(file_queue):
+    """Helper to extract all operations from batches in the queue."""
+    operations = []
+    while not file_queue.empty():
+        batch = file_queue.get()
+        if batch.operation != OperationType.STOP:
+            for item in batch.items:
+                operations.append((batch.operation, item))
+        else:
+            operations.append((batch.operation, None))
+    return operations
+
+
 class MockStorageClient:
     def list(self, **kwargs):
         raise Exception("No Such Method")
@@ -55,6 +69,46 @@ class MockStorageClient:
 
     def _is_posix_file_storage_provider(self) -> bool:
         return False
+
+
+def test_batch_size_validation():
+    """Test that batch_size must be between MIN_BATCH_SIZE and MAX_BATCH_SIZE."""
+    source_client = MockStorageClient()
+    target_client = MockStorageClient()
+
+    # Test batch size too small
+    try:
+        ProducerThread(
+            source_client=cast(StorageClient, source_client),
+            source_path="",
+            target_client=cast(StorageClient, target_client),
+            target_path="",
+            progress=ProgressBar(desc="", show_progress=False),
+            file_queue=queue.Queue(),
+            num_workers=1,
+            shutdown_event=threading.Event(),
+            batch_size=5,
+        )
+        assert False, "Expected ValueError for batch_size too small"
+    except ValueError as e:
+        assert f"batch_size must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}" in str(e)
+
+    # Test batch size too large
+    try:
+        ProducerThread(
+            source_client=cast(StorageClient, source_client),
+            source_path="",
+            target_client=cast(StorageClient, target_client),
+            target_path="",
+            progress=ProgressBar(desc="", show_progress=False),
+            file_queue=queue.Queue(),
+            num_workers=1,
+            shutdown_event=threading.Event(),
+            batch_size=1000,
+        )
+        assert False, "Expected ValueError for batch_size too large"
+    except ValueError as e:
+        assert f"batch_size must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}" in str(e)
 
 
 def test_producer_thread_error():
@@ -166,6 +220,60 @@ def test_progress_bar_update_in_producer_thread_with_deletion():
     assert progress.pbar.n == 0
 
 
+def test_batch_flushing_on_operation_type_change():
+    """Test that batches are flushed when operation type changes."""
+    source_client = MockStorageClient()
+    target_client = MockStorageClient()
+
+    source_files = [
+        ObjectMetadata(key="file0.txt", content_length=100, last_modified=datetime(2025, 1, 1, 0, 0, 0)),
+        ObjectMetadata(key="file1.txt", content_length=100, last_modified=datetime(2025, 1, 1, 0, 0, 0)),
+        ObjectMetadata(key="file2.txt", content_length=100, last_modified=datetime(2025, 1, 1, 0, 0, 0)),
+    ]
+
+    target_files = [
+        ObjectMetadata(key="file3.txt", content_length=100, last_modified=datetime(2025, 1, 1, 0, 0, 0)),
+        ObjectMetadata(key="file4.txt", content_length=100, last_modified=datetime(2025, 1, 1, 0, 0, 0)),
+    ]
+
+    source_client.list = lambda **kwargs: iter(source_files)  # type: ignore
+    target_client.list = lambda **kwargs: iter(target_files)  # type: ignore
+
+    progress = ProgressBar(desc="Syncing", show_progress=False)
+    file_queue = queue.Queue()
+    shutdown_event = threading.Event()
+
+    producer_thread = ProducerThread(
+        source_client=cast(StorageClient, source_client),
+        source_path="",
+        target_client=cast(StorageClient, target_client),
+        target_path="",
+        progress=progress,
+        file_queue=file_queue,
+        num_workers=1,
+        shutdown_event=shutdown_event,
+        delete_unmatched_files=True,
+    )
+
+    producer_thread.start()
+    producer_thread.join()
+
+    assert producer_thread.error is None
+
+    batches = []
+    while not file_queue.empty():
+        batches.append(file_queue.get())
+
+    non_stop_batches = [b for b in batches if b.operation != OperationType.STOP]
+    assert len(non_stop_batches) == 2
+
+    assert non_stop_batches[0].operation == OperationType.ADD
+    assert len(non_stop_batches[0].items) == 3
+
+    assert non_stop_batches[1].operation == OperationType.DELETE
+    assert len(non_stop_batches[1].items) == 2
+
+
 def test_producer_thread_with_shutdown_event():
     """Test ProducerThread respects shutdown event."""
     source_client = MockStorageClient()
@@ -212,3 +320,86 @@ def test_producer_thread_with_shutdown_event():
     # Given that producer thread is not alive, the queue should have some files left
     queue_size = file_queue.qsize()
     assert queue_size > 0
+
+
+def test_batch_flushing_on_size_bucket_change():
+    """Test that batches are flushed when file size bucket changes."""
+    source_client = MockStorageClient()
+    target_client = MockStorageClient()
+
+    source_files = [
+        # SMALL bucket (< 1MB)
+        ObjectMetadata(key="file0_small1.txt", content_length=500 * 1024, last_modified=datetime(2025, 1, 1, 0, 0, 0)),
+        ObjectMetadata(key="file1_small2.txt", content_length=800 * 1024, last_modified=datetime(2025, 1, 1, 0, 0, 0)),
+        # MEDIUM bucket (1MB - 64MB)
+        ObjectMetadata(
+            key="file2_medium1.txt", content_length=2 * 1024 * 1024, last_modified=datetime(2025, 1, 1, 0, 0, 0)
+        ),
+        ObjectMetadata(
+            key="file3_medium2.txt", content_length=10 * 1024 * 1024, last_modified=datetime(2025, 1, 1, 0, 0, 0)
+        ),
+        # LARGE bucket (64MB - 1GB)
+        ObjectMetadata(
+            key="file4_large1.txt", content_length=100 * 1024 * 1024, last_modified=datetime(2025, 1, 1, 0, 0, 0)
+        ),
+        ObjectMetadata(
+            key="file5_large2.txt", content_length=500 * 1024 * 1024, last_modified=datetime(2025, 1, 1, 0, 0, 0)
+        ),
+        # VERY_LARGE bucket (> 1GB)
+        ObjectMetadata(
+            key="file6_vlarge1.txt", content_length=2 * 1024 * 1024 * 1024, last_modified=datetime(2025, 1, 1, 0, 0, 0)
+        ),
+        ObjectMetadata(
+            key="file7_vlarge2.txt", content_length=3 * 1024 * 1024 * 1024, last_modified=datetime(2025, 1, 1, 0, 0, 0)
+        ),
+    ]
+
+    target_files = []
+
+    source_client.list = lambda **kwargs: iter(source_files)  # type: ignore
+    target_client.list = lambda **kwargs: iter(target_files)  # type: ignore
+
+    progress = ProgressBar(desc="Syncing", show_progress=False)
+    file_queue = queue.Queue()
+    shutdown_event = threading.Event()
+
+    producer_thread = ProducerThread(
+        source_client=cast(StorageClient, source_client),
+        source_path="",
+        target_client=cast(StorageClient, target_client),
+        target_path="",
+        progress=progress,
+        file_queue=file_queue,
+        num_workers=1,
+        shutdown_event=shutdown_event,
+        batch_size=50,
+    )
+
+    producer_thread.start()
+    producer_thread.join()
+
+    assert producer_thread.error is None
+
+    batches = []
+    while not file_queue.empty():
+        batches.append(file_queue.get())
+
+    non_stop_batches = [b for b in batches if b.operation != OperationType.STOP]
+
+    assert len(non_stop_batches) == 4
+
+    assert non_stop_batches[0].operation == OperationType.ADD
+    assert len(non_stop_batches[0].items) == 2
+    assert all(item.content_length < 1 * 1024 * 1024 for item in non_stop_batches[0].items)
+
+    assert non_stop_batches[1].operation == OperationType.ADD
+    assert len(non_stop_batches[1].items) == 2
+    assert all(1 * 1024 * 1024 <= item.content_length < 64 * 1024 * 1024 for item in non_stop_batches[1].items)
+
+    assert non_stop_batches[2].operation == OperationType.ADD
+    assert len(non_stop_batches[2].items) == 2
+    assert all(64 * 1024 * 1024 <= item.content_length < 1024 * 1024 * 1024 for item in non_stop_batches[2].items)
+
+    assert non_stop_batches[3].operation == OperationType.ADD
+    assert len(non_stop_batches[3].items) == 2
+    assert all(item.content_length >= 1024 * 1024 * 1024 for item in non_stop_batches[3].items)

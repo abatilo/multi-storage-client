@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Optional
 from ..types import ExecutionMode, SyncError, SyncResult
 from ..utils import PatternMatcher, calculate_worker_processes_and_threads
 from .monitors import ErrorMonitorThread, ResultMonitorThread
-from .producer import ProducerThread
+from .producer import DEFAULT_BATCH_SIZE, ProducerThread
 from .progress_bar import ProgressBar
 from .types import OperationType
 from .worker import _sync_worker_process
@@ -88,6 +88,7 @@ class SyncManager:
         source_files: Optional[list[str]] = None,
         ignore_hidden: bool = True,
         commit_metadata: bool = True,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> SyncResult:
         """
         Synchronize objects from source to target storage location.
@@ -119,6 +120,11 @@ class SyncManager:
         :param ignore_hidden: Whether to ignore hidden files and directories (starting with dot). Default is True.
         :param commit_metadata: When True (default), calls :py:meth:`StorageClient.commit_metadata` after sync completes.
             Set to False to skip the commit, allowing batching of multiple sync operations before committing manually.
+        :param batch_size: Maximum number of operations to batch together before enqueueing. Must be between ``MIN_BATCH_SIZE`` (10)
+            and ``MAX_BATCH_SIZE`` (500). Default is 100. Actual batch sizes may be smaller when the operation type changes
+            (ADD to DELETE or vice versa), when file size buckets change (to group similar-sized files), or when the producer
+            completes iteration. Batching reduces queue overhead, improves load balancing, and enables future bulk transfer
+            optimizations.
         :raises SyncError: If errors occur during sync operations. Exception message contains details of all errors encountered.
             The sync operation will stop on the first error (fail-fast) and report all errors collected up to that point.
             The SyncError includes a partial SyncResult showing what was accomplished before the error occurred.
@@ -183,6 +189,7 @@ class SyncManager:
             follow_symlinks,
             source_files,
             ignore_hidden,
+            batch_size,
         )
         producer_thread.start()
 

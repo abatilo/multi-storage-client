@@ -15,7 +15,10 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from ..types import ObjectMetadata
 
 QueueLike = Any  # queue.Queue | multiprocessing.Queue | SharedQueue
 EventLike = Any  # threading.Event | multiprocessing.Event | SharedEvent
@@ -48,3 +51,21 @@ class OperationType(Enum):
     ADD = "add"
     DELETE = "delete"
     STOP = "stop"  # Signal to stop the thread.
+
+
+@dataclass
+class OperationBatch:
+    """A batch of sync operations of the same type.
+
+    This dataclass groups multiple operations of the same type together
+    to reduce queue overhead and enable future bulk transfer optimizations.
+    Operations are batched by type (ADD or DELETE) and flushed when:
+    - The batch reaches the configured batch_size
+    - The operation type changes
+    - The producer completes iteration
+
+    The STOP operation type is used as a sentinel and is always sent individually.
+    """
+
+    operation: OperationType
+    items: list["ObjectMetadata"]

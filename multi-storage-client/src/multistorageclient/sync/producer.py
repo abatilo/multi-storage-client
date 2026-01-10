@@ -16,17 +16,36 @@
 import logging
 import os
 import threading
+from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
 from ..types import ObjectMetadata
 from ..utils import PatternMatcher
 from .progress_bar import ProgressBar
-from .types import EventLike, OperationType, QueueLike
+from .types import EventLike, OperationBatch, OperationType, QueueLike
 
 if TYPE_CHECKING:
     from ..client.types import AbstractStorageClient
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_BATCH_SIZE = 20
+MIN_BATCH_SIZE = 10
+MAX_BATCH_SIZE = 100
+
+# Size bucket thresholds for batching optimization
+SIZE_SMALL_THRESHOLD = 1 * 1024 * 1024  # 1 MB
+SIZE_MEDIUM_THRESHOLD = 64 * 1024 * 1024  # 64 MB
+SIZE_LARGE_THRESHOLD = 1024 * 1024 * 1024  # 1 GB
+
+
+class SizeBucket(Enum):
+    """File size categories for batching optimization."""
+
+    SMALL = "small"  # 0 - 1MB
+    MEDIUM = "medium"  # 1MB - 64MB
+    LARGE = "large"  # 64MB - 1GB
+    VERY_LARGE = "very_large"  # > 1GB
 
 
 class ProducerThread(threading.Thread):
@@ -41,7 +60,12 @@ class ProducerThread(threading.Thread):
     The thread compares files by their relative paths and metadata (content length,
     last modified time) to determine if files need to be copied, deleted, or can be skipped.
 
-    The thread will put tuples of (OperationType, ObjectMetadata) into the file_queue.
+    Operations are batched together by type and file size for optimal load balancing.
+    The thread will put OperationBatch objects into the file_queue, with each batch containing
+    up to batch_size operations of the same type and similar size. Files are grouped into
+    size buckets (small: <1MB, medium: 1-64MB, large: 64MB-1GB, very large: >1GB) to ensure
+    workers receive similarly-sized workloads. Batches are flushed when the batch size is reached,
+    when the operation type changes, when the size bucket changes, or when iteration completes.
     """
 
     def __init__(
@@ -60,8 +84,11 @@ class ProducerThread(threading.Thread):
         follow_symlinks: bool = True,
         source_files: Optional[list[str]] = None,
         ignore_hidden: bool = True,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ):
         super().__init__(daemon=True)
+        if batch_size < MIN_BATCH_SIZE or batch_size > MAX_BATCH_SIZE:
+            raise ValueError(f"batch_size must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}, got {batch_size}")
         self.source_client = source_client
         self.target_client = target_client
         self.source_path = source_path
@@ -76,8 +103,53 @@ class ProducerThread(threading.Thread):
         self.follow_symlinks = follow_symlinks
         self.source_files = source_files
         self.ignore_hidden = ignore_hidden
+        self.batch_size = batch_size
         self.error = None
         self.total_work_units = 0
+        self._current_batch: list[ObjectMetadata] = []
+        self._current_batch_type: Optional[OperationType] = None
+        self._current_batch_size_bucket: Optional[SizeBucket] = None
+
+    def _get_size_bucket(self, content_length: int) -> SizeBucket:
+        """Determine the size bucket for a file based on its content length."""
+        if content_length <= SIZE_SMALL_THRESHOLD:
+            return SizeBucket.SMALL
+        elif content_length <= SIZE_MEDIUM_THRESHOLD:
+            return SizeBucket.MEDIUM
+        elif content_length <= SIZE_LARGE_THRESHOLD:
+            return SizeBucket.LARGE
+        else:
+            return SizeBucket.VERY_LARGE
+
+    def _flush_batch(self) -> None:
+        """Flush the current batch to the queue."""
+        if self._current_batch and self._current_batch_type is not None:
+            batch = OperationBatch(operation=self._current_batch_type, items=self._current_batch)
+            self.file_queue.put(batch)
+            self._current_batch = []
+            self._current_batch_type = None
+            self._current_batch_size_bucket = None
+
+    def _enqueue_operation(self, operation: OperationType, metadata: ObjectMetadata) -> None:
+        """
+        Add an operation to the current batch, flushing if necessary.
+
+        Batches are flushed when:
+        - Operation type changes (ADD vs DELETE)
+        - File size bucket changes (small vs medium vs large vs very large)
+        - Batch size limit is reached
+        """
+        size_bucket = self._get_size_bucket(metadata.content_length)
+
+        if self._current_batch_type != operation or self._current_batch_size_bucket != size_bucket:
+            self._flush_batch()
+            self._current_batch_type = operation
+            self._current_batch_size_bucket = size_bucket
+
+        self._current_batch.append(metadata)
+
+        if len(self._current_batch) >= self.batch_size:
+            self._flush_batch()
 
     def _match_file_metadata(self, source_info: ObjectMetadata, target_info: ObjectMetadata) -> bool:
         # Check file size is the same and the target's last_modified is newer than the source.
@@ -150,12 +222,12 @@ class ProducerThread(threading.Thread):
                     if source_key < target_key:
                         # Check if file should be included based on patterns
                         if not self.pattern_matcher or self.pattern_matcher.should_include_file(source_key):
-                            self.file_queue.put((OperationType.ADD, source_file))
+                            self._enqueue_operation(OperationType.ADD, source_file)
                             self.total_work_units += 1
                         source_file = next(source_iter, None)
                     elif source_key > target_key:
                         if self.delete_unmatched_files:
-                            self.file_queue.put((OperationType.DELETE, target_file))
+                            self._enqueue_operation(OperationType.DELETE, target_file)
                             self.total_work_units += 1
                         target_file = next(target_iter, None)  # Skip unmatched target file
                     else:
@@ -163,7 +235,7 @@ class ProducerThread(threading.Thread):
                         if not self._match_file_metadata(source_file, target_file):
                             # Check if file should be included based on patterns
                             if not self.pattern_matcher or self.pattern_matcher.should_include_file(source_key):
-                                self.file_queue.put((OperationType.ADD, source_file))
+                                self._enqueue_operation(OperationType.ADD, source_file)
                         else:
                             self.progress.update_progress()
 
@@ -180,7 +252,7 @@ class ProducerThread(threading.Thread):
 
                     # Check if file should be included based on patterns
                     if not self.pattern_matcher or self.pattern_matcher.should_include_file(source_key):
-                        self.file_queue.put((OperationType.ADD, source_file))
+                        self._enqueue_operation(OperationType.ADD, source_file)
                         self.total_work_units += 1
                     source_file = next(source_iter, None)
                 elif target_file:
@@ -192,7 +264,7 @@ class ProducerThread(threading.Thread):
                         continue
 
                     if self.delete_unmatched_files:
-                        self.file_queue.put((OperationType.DELETE, target_file))
+                        self._enqueue_operation(OperationType.DELETE, target_file)
                         self.total_work_units += 1
                     target_file = next(target_iter, None)
 
@@ -200,5 +272,6 @@ class ProducerThread(threading.Thread):
         except Exception as e:
             self.error = e
         finally:
+            self._flush_batch()
             for _ in range(self.num_workers):
-                self.file_queue.put((OperationType.STOP, None))  # Signal consumers to stop
+                self.file_queue.put(OperationBatch(operation=OperationType.STOP, items=[]))
