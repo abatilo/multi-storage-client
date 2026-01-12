@@ -81,6 +81,7 @@ func (*globalsStruct) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var (
 		backend     *backendStruct
 		backendName string
+		numDrained  uint64
 		registry    *prometheus.Registry
 	)
 
@@ -95,6 +96,16 @@ func (*globalsStruct) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		globals.Unlock()
+
+	case r.RequestURI == "/drain":
+		globals.Lock()
+
+		numDrained = inodeEvictorForceDrain()
+
+		globals.Unlock()
+
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "%v\n", numDrained)
 
 	case r.RequestURI == "/metrics":
 		registry = prometheus.NewRegistry()
@@ -139,6 +150,7 @@ func (*globalsStruct) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(w, "unknown endpoint - must be one of:\n")
 		fmt.Fprintf(w, "  /backends\n")
+		fmt.Fprintf(w, "  /drain\n")
 		fmt.Fprintf(w, "  /metrics\n")
 		globals.Lock()
 		for _, backend = range globals.config.backends {

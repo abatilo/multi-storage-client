@@ -60,7 +60,7 @@ type fissionMetricsStruct struct {
 
 // `newFissionMetrics` provisions and initializes a `fissionMetricsStruct`.
 func newFissionMetrics() (fissionMetrics *fissionMetricsStruct) {
-	latencyBuckets := prometheus.DefBuckets
+	latencyBuckets := []float64{.000005, .000010, .000025, .000050, .000100, .000250, .000500, .001000, .002500, .005000, .010000, .025000, .050000, .100000, .250000, .500000, 1, 2.5, 5, 10}
 
 	fissionMetrics = &fissionMetricsStruct{
 		LookupSuccesses: prometheus.NewCounter(prometheus.CounterOpts{

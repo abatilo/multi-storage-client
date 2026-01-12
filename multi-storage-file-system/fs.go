@@ -537,6 +537,66 @@ func inodeEvictor() {
 	}
 }
 
+// `inodeEvictorForceDrain` is called to forcibly drain globals.inodeEvictionLRU.
+//
+// Note 1: Callers must hold globals.lock
+// Note 2: Calls should not be made until after globals.config.entryAttrTTL idle time
+func inodeEvictorForceDrain() (numDrained uint64) {
+	var (
+		childInode       *inodeStruct
+		childInodeNumber uint64
+		listElement      *list.Element
+		ok               bool
+		parentInode      *inodeStruct
+		xTime            time.Time
+	)
+
+	numDrained = 0
+
+	for {
+		xTime, listElement, childInodeNumber, ok = globals.inodeEvictionLRU.Front()
+		if !ok {
+			break
+		}
+
+		numDrained++
+
+		globals.inodeEvictionLRU.Remove(xTime, listElement)
+
+		childInode, ok = globals.inodeMap[childInodeNumber]
+		if !ok {
+			dumpStack()
+			globals.logger.Fatalf("[FATAL] globals.inodeMap[childInodeNumber] returned !ok")
+		}
+
+		parentInode, ok = globals.inodeMap[childInode.parentInodeNumber]
+		if !ok {
+			dumpStack()
+			globals.logger.Fatalf("[FATAL] globals.inodeMap[childInode.parentInodeNumber] returned !ok")
+		}
+
+		if childInode.isVirt {
+			ok = parentInode.virtChildInodeMap.DeleteByKey(childInode.basename)
+			if !ok {
+				dumpStack()
+				globals.logger.Fatalf("[FATAL] parentInode.virtChildInodeMap.DeleteByKey(childInode.basename) returned !ok")
+			}
+		} else {
+			ok = parentInode.physChildInodeMap.DeleteByKey(childInode.basename)
+			if !ok {
+				dumpStack()
+				globals.logger.Fatalf("[FATAL] parentInode.virtChildInodeMap.DeleteByKey(childInode.basename) returned !ok")
+			}
+		}
+
+		delete(globals.inodeMap, childInodeNumber)
+
+		parentInode.touch(nil)
+	}
+
+	return
+}
+
 // `findChildInode` is called to locate or create a child's inodeStruct. The return `ok` indicates
 // that either the child's inodeStruct was already known or has been created in the cases where
 // an existing object or object prefix is found. Callers should already hold globals.Lock().

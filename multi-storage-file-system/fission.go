@@ -634,7 +634,7 @@ func (*globalsStruct) DoRead(inHeader *fission.InHeader, readIn *fission.ReadIn)
 			continue
 		}
 
-		cacheLineHits++ // Note that this is the fall-thru condition that counts resolved (cacheLine)Misses & (cacheLine)Wais as (subsequent) Hits
+		cacheLineHits++ // Note that this is the fall-thru condition that counts resolved (cacheLine)Misses & (cacheLine)Waits as (subsequent) Hits
 
 		cacheLine.touch()
 
