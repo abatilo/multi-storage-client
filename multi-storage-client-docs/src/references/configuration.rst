@@ -179,7 +179,7 @@ If you attempt to use an experimental feature without enabling it, you'll receiv
 Profile
 *******
 
-Each profile in the configuration defines how to interact with storage services through four main sections:
+Each profile in the configuration defines how to interact with storage services through the following sections:
 
 * ``storage_provider``
 
@@ -236,6 +236,11 @@ Each profile in the configuration defines how to interact with storage services 
      type: <string>
      # Required. Provider-specific options
      options: <provider_options>
+
+   # Optional. List of backend profile names for multi-backend configuration.
+   # Mutually exclusive with storage_provider and provider_bundle.
+   storage_provider_profiles:
+     - <string>  # Profile name of backend
 
    # Optional. Enable caching for this profile (default: false)
    caching_enabled: <boolean>
@@ -821,6 +826,50 @@ Where:
    will validate the file format and schema at startup. If the file is updated by an external process,
    call :py:meth:`refresh_credentials` to reload the credentials from the file.
 
+Storage Provider Profiles
+=============================
+
+The ``storage_provider_profiles`` field allows you to configure a profile that accesses data from multiple storage backends. This is used for multi-backend datasets where files are distributed across different storage locations (e.g., multi-region, multi-cloud).
+
+When ``storage_provider_profiles`` is specified:
+
+* The profile becomes **read-only** (write operations are not supported)
+* The list contains names of other profiles that serve as backend storage providers (these profile names must exist)
+* A ``metadata_provider`` is **required** to provide routing information (which backend to use for each file)
+* The profile cannot also define ``storage_provider`` or ``provider_bundle``
+
+.. code-block:: yaml
+   :caption: Example: Multi-region dataset profile
+
+   profiles:
+     # Backend profiles (individual storage locations)
+     us-backend:
+       storage_provider:
+         type: s3
+         options:
+           base_path: dataset-us
+           region_name: us-east-1
+
+     eu-backend:
+       storage_provider:
+         type: s3
+         options:
+           base_path: dataset-eu
+           region_name: eu-west-1
+
+     # Multi-backend profile (read-only)
+     global-dataset:
+       storage_provider_profiles:
+         - us-backend
+         - eu-backend
+       metadata_provider:
+         type: my_company.routing.LocationRouter
+         options:
+           routing_table: /path/to/routing.json
+
+.. seealso::
+   :ref:`multi-backend-configuration` - Multi-backend configuration reference including metadata provider implementation and routing behavior.
+
 Retry
 =====
 
@@ -1213,6 +1262,122 @@ protocol, which allows users to point existing URLs to different storage provide
    * Must reference a profile that is defined in the MSC configuration
 
    While processing non-MSC URLs, If multiple source paths match a given input path, the longest matching prefix takes precedence.
+
+.. _multi-backend-configuration:
+
+***************************
+Multi-Backend Configuration
+***************************
+
+Multi-backend configuration allows you to access datasets distributed across multiple storage backends (e.g., different regions, cloud providers, or storage tiers) through a single unified profile. MSC automatically routes read operations to the appropriate backend based on file metadata.
+
+**How it Works:**
+
+When a profile is configured with multiple backends, MSC automatically uses a :py:class:`~multistorageclient.client.composite.CompositeStorageClient` that:
+
+1. Accepts read operations (``list_objects``, ``get_object``, ``download_file``, ``open``, ``glob``, ``get_object_metadata``, ``is_file``)
+2. Queries the metadata provider to determine which backend stores each file
+3. Routes the operation to the appropriate child backend
+4. Returns results transparently to the application
+
+.. warning::
+   Multi-backend profiles are **read-only**. StorageClient write operations are not supported to ensure data consistency:
+
+   * :py:meth:`multistorageclient.client.client.StorageClient.write`
+   * :py:meth:`multistorageclient.client.client.StorageClient.delete`
+   * :py:meth:`multistorageclient.client.client.StorageClient.copy`
+   * :py:meth:`multistorageclient.client.client.StorageClient.upload_file`
+   * :py:meth:`multistorageclient.client.client.StorageClient.sync_from`
+
+   Use single-backend profiles for write operations. Composite routing is handled by :py:class:`~multistorageclient.client.composite.CompositeStorageClient`.
+
+
+.. important::
+   **Metadata Provider Requirement**
+   
+   Multi-backend configuration requires a custom metadata provider that returns routing information. The metadata provider must implement ``realpath()`` to return a :py:class:`~multistorageclient.types.ResolvedPath` object with the ``profile`` field set to match one of your configured backend profile names.
+   
+   The standard ``manifest`` metadata provider does not support multi-backend routing and cannot be used with this feature.
+
+Configuration Using storage_provider_profiles
+==============================================
+
+The recommended approach is to define individual backend profiles, then reference them in a multi-backend profile using ``storage_provider_profiles``.
+
+.. code-block:: yaml
+   :caption: Example: Multi-region S3 dataset
+
+   profiles:
+     # Backend 1: US East region
+     us-east-backend:
+       storage_provider:
+         type: s3
+         options:
+           base_path: my-dataset-us-east
+           region_name: us-east-1
+       credentials_provider:
+         type: S3Credentials
+         options:
+           access_key: ${AWS_ACCESS_KEY_US}
+           secret_key: ${AWS_SECRET_KEY_US}
+     
+     # Backend 2: EU West region
+     eu-west-backend:
+       storage_provider:
+         type: s3
+         options:
+           base_path: my-dataset-eu-west
+           region_name: eu-west-1
+       credentials_provider:
+         type: S3Credentials
+         options:
+           access_key: ${AWS_ACCESS_KEY_EU}
+           secret_key: ${AWS_SECRET_KEY_EU}
+     
+     # Multi-backend profile (read-only)
+     global-dataset:
+       storage_provider_profiles:
+         - us-east-backend
+         - eu-west-backend
+       metadata_provider:
+         type: my_company.metadata.MultiLocationMetadataProvider
+         options:
+           location_map: /path/to/location_map.json
+           default_backend: us-east-backend
+
+.. note::
+   * Each backend profile can have independent credentials, retry configs, and replicas
+   * Backend profile names (e.g., ``us-east-backend``, ``eu-west-backend``) must match the ``profile`` field returned by your metadata provider
+   * The metadata provider determines which backend to use for each file
+
+
+Configuration Using Custom Provider Bundle
+===========================================
+
+For advanced use cases requiring custom initialization logic:
+
+.. code-block:: yaml
+   :caption: Example: Custom provider bundle
+
+   profiles:
+     global-dataset:
+       provider_bundle:
+         type: my_company.bundles.MultiRegionProviderBundle
+         options:
+           region_configs:
+             - region: us-east-1
+               bucket: my-dataset-us-east
+             - region: eu-west-1
+               bucket: my-dataset-eu-west
+       metadata_provider:
+         type: my_company.metadata.RegionRouter
+         options:
+           routing_table: /path/to/routing.json
+
+This approach allows you to encapsulate all backend configuration logic in a custom ProviderBundleV2 implementation.
+
+.. note::
+  Multi-backend profiles created via a custom ``provider_bundle`` are **read-only** and follow the same constraints as those configured with ``storage_provider_profiles`` (e.g., routing via ``metadata_provider`` and no write operations).
 
 *****************
 Implicit Profiles
