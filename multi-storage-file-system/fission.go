@@ -285,6 +285,8 @@ func (*globalsStruct) DoGetAttr(inHeader *fission.InHeader, getAttrIn *fission.G
 		return
 	}
 
+	thisInode.touch(nil)
+
 	switch thisInode.inodeType {
 	case FileObject:
 		uid = uint32(thisInode.backend.uid)
@@ -478,6 +480,8 @@ func (*globalsStruct) DoOpen(inHeader *fission.InHeader, openIn *fission.OpenIn)
 
 	inode.fhMap[fh.nonce] = fh
 
+	inode.touch(nil)
+
 	openOut = &fission.OpenOut{
 		FH:        fh.nonce,
 		OpenFlags: openOutFlags,
@@ -573,6 +577,8 @@ func (*globalsStruct) DoRead(inHeader *fission.InHeader, readIn *fission.ReadIn)
 			errno = syscall.EBADF
 			return
 		}
+
+		inode.touch(nil)
 
 		if curOffset >= inode.sizeInBackend {
 			// We have reached EOF
@@ -755,6 +761,8 @@ func (*globalsStruct) DoRelease(inHeader *fission.InHeader, releaseIn *fission.R
 
 	delete(inode.fhMap, fh.nonce)
 
+	inode.touch(nil)
+
 	globals.Unlock()
 
 	errno = 0
@@ -898,6 +906,8 @@ func (*globalsStruct) DoOpenDir(inHeader *fission.InHeader, openDirIn *fission.O
 
 	inode.fhMap[fh.nonce] = fh
 
+	inode.touch(nil)
+
 	openDirOut = &fission.OpenDirOut{
 		FH:        fh.nonce,
 		OpenFlags: 0,
@@ -1025,6 +1035,8 @@ Restart:
 		errno = syscall.EBADF
 		return
 	}
+
+	parentInode.touch(nil)
 
 	if parentInode.inodeType == FUSERootDir {
 		childDirMapLen = uint64(parentInode.virtChildInodeMap.Len()) // Will be == 2 + len(globals.config.backends)
@@ -1268,6 +1280,8 @@ func (*globalsStruct) DoReleaseDir(inHeader *fission.InHeader, releaseDirIn *fis
 	}
 
 	delete(inode.fhMap, fh.nonce)
+
+	inode.touch(nil)
 
 	globals.Unlock()
 
@@ -1515,6 +1529,8 @@ Restart:
 		return
 	}
 
+	parentInode.touch(nil)
+
 	if parentInode.inodeType == FUSERootDir {
 		childDirMapLen = uint64(parentInode.virtChildInodeMap.Len()) // Will be == 2 + len(globals.config.backends)
 
@@ -1756,6 +1772,8 @@ func (*globalsStruct) DoStatX(inHeader *fission.InHeader, statXIn *fission.StatX
 		errno = syscall.ENOENT
 		return
 	}
+
+	thisInode.touch(nil)
 
 	switch thisInode.inodeType {
 	case FileObject:
