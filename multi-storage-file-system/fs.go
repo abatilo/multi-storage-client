@@ -20,24 +20,27 @@ func initFS() {
 	globals.lastNonce = FUSERootDirInodeNumber
 
 	globals.inode = &inodeStruct{
-		inodeNumber:       FUSERootDirInodeNumber,
-		inodeType:         FUSERootDir,
-		backend:           nil,
-		parentInodeNumber: FUSERootDirInodeNumber,
-		isVirt:            true,
-		objectPath:        "",
-		basename:          "",
-		sizeInBackend:     0,
-		sizeInMemory:      0,
-		eTag:              "",
-		mode:              uint32(syscall.S_IFDIR | globals.config.dirPerm),
-		mTime:             timeNow,
-		xTime:             time.Time{},
-		listElement:       nil,
-		fhMap:             make(map[uint64]*fhStruct),
-		physChildInodeMap: newStringToUint64Map(PhysChildInodeMap),
-		virtChildInodeMap: newStringToUint64Map(VirtChildInodeMap),
-		cache:             nil,
+		inodeNumber:            FUSERootDirInodeNumber,
+		inodeType:              FUSERootDir,
+		backend:                nil,
+		parentInodeNumber:      FUSERootDirInodeNumber,
+		isVirt:                 true,
+		objectPath:             "",
+		basename:               "",
+		sizeInBackend:          0,
+		sizeInMemory:           0,
+		eTag:                   "",
+		mode:                   uint32(syscall.S_IFDIR | globals.config.dirPerm),
+		mTime:                  timeNow,
+		xTime:                  time.Time{},
+		listElement:            nil,
+		fhMap:                  make(map[uint64]*fhStruct),
+		physChildInodeMap:      newStringToUint64Map(PhysChildInodeMap),
+		virtChildInodeMap:      newStringToUint64Map(VirtChildInodeMap),
+		cache:                  nil,
+		inboundCacheLineCount:  0,
+		outboundCacheLineCount: 0,
+		dirtyCacheLineCount:    0,
 	}
 
 	globals.inodeMap = make(map[uint64]*inodeStruct)
@@ -110,24 +113,27 @@ func processToMountList() {
 		}
 
 		backend.inode = &inodeStruct{
-			inodeNumber:       fetchNonce(),
-			inodeType:         BackendRootDir,
-			backend:           backend,
-			parentInodeNumber: FUSERootDirInodeNumber,
-			isVirt:            true,
-			objectPath:        "",
-			basename:          dirName,
-			sizeInBackend:     0,
-			sizeInMemory:      0,
-			eTag:              "",
-			mode:              uint32(syscall.S_IFDIR | backend.dirPerm),
-			mTime:             timeNow,
-			xTime:             time.Time{},
-			listElement:       nil,
-			fhMap:             make(map[uint64]*fhStruct),
-			physChildInodeMap: newStringToUint64Map(PhysChildInodeMap),
-			virtChildInodeMap: newStringToUint64Map(VirtChildInodeMap),
-			cache:             nil,
+			inodeNumber:            fetchNonce(),
+			inodeType:              BackendRootDir,
+			backend:                backend,
+			parentInodeNumber:      FUSERootDirInodeNumber,
+			isVirt:                 true,
+			objectPath:             "",
+			basename:               dirName,
+			sizeInBackend:          0,
+			sizeInMemory:           0,
+			eTag:                   "",
+			mode:                   uint32(syscall.S_IFDIR | backend.dirPerm),
+			mTime:                  timeNow,
+			xTime:                  time.Time{},
+			listElement:            nil,
+			fhMap:                  make(map[uint64]*fhStruct),
+			physChildInodeMap:      newStringToUint64Map(PhysChildInodeMap),
+			virtChildInodeMap:      newStringToUint64Map(VirtChildInodeMap),
+			cache:                  nil,
+			inboundCacheLineCount:  0,
+			outboundCacheLineCount: 0,
+			dirtyCacheLineCount:    0,
 		}
 
 		ok = globals.inode.virtChildInodeMap.Put(backend.dirName, backend.inode.inodeNumber)
@@ -316,18 +322,21 @@ func (parentInode *inodeStruct) createPseudoDirInode(isVirt bool, basename strin
 		parentInodeNumber: parentInode.inodeNumber,
 		isVirt:            isVirt,
 		// objectPath: filled in below
-		basename:          basename,
-		sizeInBackend:     0,
-		sizeInMemory:      0,
-		eTag:              "",
-		mode:              uint32(syscall.S_IFDIR | parentInode.backend.dirPerm),
-		mTime:             timeNow,
-		xTime:             time.Time{},
-		listElement:       nil,
-		fhMap:             make(map[uint64]*fhStruct),
-		physChildInodeMap: newStringToUint64Map(PhysChildInodeMap),
-		virtChildInodeMap: newStringToUint64Map(VirtChildInodeMap),
-		cache:             nil,
+		basename:               basename,
+		sizeInBackend:          0,
+		sizeInMemory:           0,
+		eTag:                   "",
+		mode:                   uint32(syscall.S_IFDIR | parentInode.backend.dirPerm),
+		mTime:                  timeNow,
+		xTime:                  time.Time{},
+		listElement:            nil,
+		fhMap:                  make(map[uint64]*fhStruct),
+		physChildInodeMap:      newStringToUint64Map(PhysChildInodeMap),
+		virtChildInodeMap:      newStringToUint64Map(VirtChildInodeMap),
+		cache:                  nil,
+		inboundCacheLineCount:  0,
+		outboundCacheLineCount: 0,
+		dirtyCacheLineCount:    0,
 	}
 
 	if parentInode.objectPath == "" {
@@ -381,10 +390,13 @@ func (parentInode *inodeStruct) createFileObjectInode(isVirt bool, basename stri
 		mTime:         mTime,
 		xTime:         time.Time{},
 		// listElement: filled in below
-		fhMap:             make(map[uint64]*fhStruct),
-		physChildInodeMap: nil,
-		virtChildInodeMap: nil,
-		cache:             make(map[uint64]*cacheLineStruct),
+		fhMap:                  make(map[uint64]*fhStruct),
+		physChildInodeMap:      nil,
+		virtChildInodeMap:      nil,
+		cache:                  make(map[uint64]*cacheLineStruct),
+		inboundCacheLineCount:  0,
+		outboundCacheLineCount: 0,
+		dirtyCacheLineCount:    0,
 	}
 
 	if parentInode.objectPath == "" {
@@ -438,7 +450,7 @@ func (inode *inodeStruct) touch(mTimeAsInterface interface{}) {
 
 	switch inode.inodeType {
 	case FileObject:
-		if len(inode.fhMap) == 0 {
+		if (len(inode.fhMap) == 0) && ((inode.inboundCacheLineCount + inode.outboundCacheLineCount + inode.dirtyCacheLineCount) == 0) {
 			if inode.isVirt {
 				inode.xTime = time.Now().Add(globals.config.virtualFileTTL)
 			} else {
@@ -469,6 +481,8 @@ func (inode *inodeStruct) touch(mTimeAsInterface interface{}) {
 // to see if any "phys" inodes should be evicted or "virt" inodes should be expired.
 func inodeEvictor() {
 	var (
+		cacheLine        *cacheLineStruct
+		cacheLineNumber  uint64
 		childInode       *inodeStruct
 		childInodeNumber uint64
 		listElement      *list.Element
@@ -486,6 +500,10 @@ func inodeEvictor() {
 		case <-ticker.C:
 			globals.Lock()
 
+			// Trim globals.cleanCacheLineLRU as possible/necessary
+
+			cachePrune()
+
 			// Scan globals.inodeEvictionLRU looking for expired inodes to evict
 
 			timeNow = time.Now()
@@ -502,6 +520,20 @@ func inodeEvictor() {
 				if !ok {
 					dumpStack()
 					globals.logger.Fatalf("[FATAL] globals.inodeMap[childInodeNumber] returned !ok")
+				}
+
+				if childInode.inodeType == FileObject {
+					for cacheLineNumber, cacheLine = range childInode.cache {
+						if cacheLine.state != CacheLineClean {
+							dumpStack()
+							globals.logger.Fatalf("[FATAL] cacheLine.state(%v) != CacheLineClean(%v)", cacheLine.state, CacheLineClean)
+						}
+
+						_ = globals.cleanCacheLineLRU.Remove(cacheLine.listElement)
+						cacheLine.listElement = nil
+
+						delete(childInode.cache, cacheLineNumber)
+					}
 				}
 
 				parentInode, ok = globals.inodeMap[childInode.parentInodeNumber]
@@ -543,6 +575,8 @@ func inodeEvictor() {
 // Note 2: Calls should not be made until after globals.config.entryAttrTTL idle time
 func inodeEvictorForceDrain() (numDrained uint64) {
 	var (
+		cacheLine        *cacheLineStruct
+		cacheLineNumber  uint64
 		childInode       *inodeStruct
 		childInodeNumber uint64
 		listElement      *list.Element
@@ -567,6 +601,20 @@ func inodeEvictorForceDrain() (numDrained uint64) {
 		if !ok {
 			dumpStack()
 			globals.logger.Fatalf("[FATAL] globals.inodeMap[childInodeNumber] returned !ok")
+		}
+
+		if childInode.inodeType == FileObject {
+			for cacheLineNumber, cacheLine = range childInode.cache {
+				if cacheLine.state != CacheLineClean {
+					dumpStack()
+					globals.logger.Fatalf("[FATAL] cacheLine.state(%v) != CacheLineClean(%v)", cacheLine.state, CacheLineClean)
+				}
+
+				_ = globals.cleanCacheLineLRU.Remove(cacheLine.listElement)
+				cacheLine.listElement = nil
+
+				delete(childInode.cache, cacheLineNumber)
+			}
 		}
 
 		parentInode, ok = globals.inodeMap[childInode.parentInodeNumber]

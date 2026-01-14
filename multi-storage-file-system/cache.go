@@ -3,11 +3,6 @@ package main
 import (
 	"container/list"
 	"sync"
-	"time"
-)
-
-const (
-	pauseForCacheLineFillToPopulateCleanCacheLineLRU = 1 * time.Millisecond
 )
 
 // `fetch` is run in a goroutine for an allocated cacheLineStruct that
@@ -28,7 +23,7 @@ func (cacheLine *cacheLineStruct) fetch() {
 
 	inode, ok = globals.inodeMap[cacheLine.inodeNumber]
 	if !ok {
-		globals.logger.Printf("[WARN] [TODO] (*cacheLineStruct) fetch() needs to handle missing inodeStruct")
+		globals.logger.Printf("[WARN] [TODO] (*cacheLineStruct) fetch() needs to handle missing inodeStruct [case 1]")
 		cacheLine.state = CacheLineClean
 		cacheLine.eTag = ""
 		cacheLine.content = make([]byte, 0)
@@ -53,6 +48,12 @@ func (cacheLine *cacheLineStruct) fetch() {
 	if err != nil {
 		globals.Lock()
 		globals.logger.Printf("[WARN] [TODO] (*cacheLineStruct) fetch() needs to handle error reading cache line")
+		inode, ok = globals.inodeMap[cacheLine.inodeNumber]
+		if ok {
+			inode.inboundCacheLineCount--
+		} else {
+			globals.logger.Printf("[WARN] [TODO] (*cacheLineStruct) fetch() needs to handle missing inodeStruct [case 2]")
+		}
 		cacheLine.state = CacheLineClean
 		cacheLine.eTag = ""
 		cacheLine.content = make([]byte, 0)
@@ -64,6 +65,12 @@ func (cacheLine *cacheLineStruct) fetch() {
 	}
 
 	globals.Lock()
+	inode, ok = globals.inodeMap[cacheLine.inodeNumber]
+	if ok {
+		inode.inboundCacheLineCount--
+	} else {
+		globals.logger.Printf("[WARN] [TODO] (*cacheLineStruct) fetch() needs to handle missing inodeStruct [case 3]")
+	}
 	cacheLine.state = CacheLineClean
 	cacheLine.eTag = readFileOutput.eTag
 	cacheLine.content = readFileOutput.buf
@@ -117,85 +124,9 @@ func cacheFull() (isFull bool) {
 	return
 }
 
-func cachePrefetch(inodeNumber, currentCacheLineNumber uint64) {
-	var (
-		cacheLine                       *cacheLineStruct
-		cacheLineNumberMaxInBackend     uint64
-		cacheLinesToPotentiallyPrefetch uint64
-		cachePruneNeeded                bool
-		inode                           *inodeStruct
-		ok                              bool
-		prefetchCacheLinesIssued        uint64
-		prefetchCacheLineNumber         uint64
-		prefetchCacheLineNumberMax      uint64
-		prefetchCacheLineNumberMin      uint64
-	)
-
-	defer func() {
-		if (inode != nil) && (prefetchCacheLinesIssued != 0) {
-			globals.fissionMetrics.ReadCachePrefetches.Add(float64(prefetchCacheLinesIssued))
-
-			if inode.backend != nil {
-				inode.backend.fissionMetrics.ReadCachePrefetches.Add(float64(prefetchCacheLinesIssued))
-			}
-		}
-
-		globals.Unlock()
-
-		if cachePruneNeeded {
-			cachePrune()
-		}
-	}()
-
-	globals.Lock()
-
-	inode, ok = globals.inodeMap[inodeNumber]
-	if !ok {
-		inode = nil
-		return
-	}
-
-	cacheLineNumberMaxInBackend = ((inode.sizeInBackend + globals.config.cacheLineSize - 1) / globals.config.cacheLineSize) - 1
-
-	if cacheLineNumberMaxInBackend >= (currentCacheLineNumber + globals.config.cacheLinesToPrefetch) {
-		cacheLinesToPotentiallyPrefetch = globals.config.cacheLinesToPrefetch
-	} else {
-		cacheLinesToPotentiallyPrefetch = cacheLineNumberMaxInBackend - currentCacheLineNumber
-	}
-
-	if cacheLinesToPotentiallyPrefetch == 0 {
-		return
-	}
-
-	prefetchCacheLineNumberMin = currentCacheLineNumber + 1
-	prefetchCacheLineNumberMax = prefetchCacheLineNumberMin + cacheLinesToPotentiallyPrefetch - 1
-
-	for prefetchCacheLineNumber = prefetchCacheLineNumberMin; prefetchCacheLineNumber <= prefetchCacheLineNumberMax; prefetchCacheLineNumber++ {
-		_, ok = inode.cache[prefetchCacheLineNumber]
-		if !ok {
-			cacheLine = &cacheLineStruct{
-				state:       CacheLineInbound,
-				waiters:     make([]*sync.WaitGroup, 0, 1),
-				inodeNumber: inodeNumber,
-				lineNumber:  prefetchCacheLineNumber,
-			}
-
-			inode.cache[prefetchCacheLineNumber] = cacheLine
-
-			globals.inboundCacheLineCount++
-
-			go cacheLine.fetch()
-
-			prefetchCacheLinesIssued++
-		}
-	}
-
-	cachePruneNeeded = cacheFull()
-}
-
-// `cachePrune` is called to immediately force the cache to make room
-// for a cacheLineStruct to be added. As this opereation will possibly
-// block, callers should not hold any locks.
+// `cachePrune` is called to immediately attempt to trim globals.cleanCacheLineLRU
+// in an attempt to keep the sum of all cache lines at or below the configured cap.
+// Note: This call must be made while holding the globals.Lock().
 func cachePrune() {
 	var (
 		cacheLineToEvict *cacheLineStruct
@@ -204,48 +135,33 @@ func cachePrune() {
 		ok               bool
 	)
 
-	globals.Lock()
+	for (globals.inboundCacheLineCount + uint64(globals.cleanCacheLineLRU.Len())) >= globals.config.cacheLines {
+		listElement = globals.cleanCacheLineLRU.Front()
+		if listElement == nil {
+			return
+		}
 
-	if !cacheFull() {
-		globals.Unlock()
-		return
+		cacheLineToEvict, ok = listElement.Value.(*cacheLineStruct)
+		if !ok {
+			dumpStack()
+			globals.logger.Fatalf("[FATAL] listElement.Value.(*cacheLineStruct) returned !ok")
+		}
+
+		_ = globals.cleanCacheLineLRU.Remove(listElement)
+		cacheLineToEvict.listElement = nil
+
+		inode, ok = globals.inodeMap[cacheLineToEvict.inodeNumber]
+		if !ok {
+			dumpStack()
+			globals.logger.Fatalf("[FATAL] globals.inodeMap[cacheLineToEvict.inodeNumber] returned !ok [cachePrune()]")
+		}
+
+		_, ok = inode.cache[cacheLineToEvict.lineNumber]
+		if !ok {
+			dumpStack()
+			globals.logger.Fatalf("[FATAL] inode.cache[cacheLineToEvict.lineNumber] returned !ok")
+		}
+
+		delete(inode.cache, cacheLineToEvict.lineNumber)
 	}
-
-	listElement = globals.cleanCacheLineLRU.Front()
-
-	if listElement == nil {
-		// [TODO] Non-ideal simple pause/retry awaiting an element on cleanCacheLineLRU to evict
-
-		globals.Unlock()
-
-		time.Sleep(pauseForCacheLineFillToPopulateCleanCacheLineLRU)
-
-		return
-	}
-
-	_ = globals.cleanCacheLineLRU.Remove(listElement)
-
-	cacheLineToEvict, ok = listElement.Value.(*cacheLineStruct)
-	if !ok {
-		dumpStack()
-		globals.logger.Fatalf("[FATAL] listElement.Value.(*cacheLineStruct) returned !ok")
-	}
-
-	inode, ok = globals.inodeMap[cacheLineToEvict.inodeNumber]
-	if !ok {
-		dumpStack()
-		globals.logger.Fatalf("[FATAL] globals.inodeMap[cacheLineToEvict.inodeNumber] returned !ok [cachePrune()]")
-	}
-
-	_, ok = inode.cache[cacheLineToEvict.lineNumber]
-	if !ok {
-		dumpStack()
-		globals.logger.Fatalf("[FATAL] inode.cache[cacheLineToEvict.lineNumber] returned !ok")
-	}
-
-	delete(inode.cache, cacheLineToEvict.lineNumber)
-
-	globals.Unlock()
-
-	return
 }

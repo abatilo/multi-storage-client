@@ -226,24 +226,27 @@ type cacheLineStruct struct {
 
 // `inodeStruct` contains the state of an inode.
 type inodeStruct struct {
-	inodeNumber       uint64                      // Note that, other than the FUSERootDir, any reference to a backend object path migtht change this value
-	inodeType         uint32                      // One of FileObject, FUSERootDir, BackendRootDir, or PseudoDir
-	backend           *backendStruct              // If inodeType == FUSERootDir, == nil
-	parentInodeNumber uint64                      // If inodeType == FUSERootDir, == .inodeNumber == FUSERootDirInodeNumber [Note: This is only a reference to a directory that may no longer be in globalsStruct.inodeMap]
-	isVirt            bool                        // If == true, found on parent inodeStruct's .virtChild{Dir|File}Map; if == false, likely found on parent inodeStruct's .physChild{Dir|File}Map
-	objectPath        string                      // If inodeType == FUSERootDir, == ""; otherwise == path relative to backend.backendPath [inluding trailing slash if directory]
-	basename          string                      // If inodeType == FUSERootDir, == ""; otherwise == path/filepath.Base(.objectPath) [excluding trailing slash if directory]
-	sizeInBackend     uint64                      // If inodeType == FileObject, contains the size returned by the most recent backend call for it; otherwise == 0
-	sizeInMemory      uint64                      // If inodeType == FileObject, contains the size currently maintained in-memory only until the file is written to the backend; otherwise == 0
-	eTag              string                      // If inodeType == FileObject, contains the eTag returned by the most recent call to readFileWrapper() for the object; otherwise == ""
-	mode              uint32                      // If inodeType == FileObject, == (syscall.S_IFREG | file_perm); otherwise, == (syscall.S_IFDIR | dir_perm)
-	mTime             time.Time                   // Time when this inodeStruct was last modified - note this is reported for aTime, bTime, and cTime as well
-	xTime             time.Time                   // If != time.Time{}, marks the time when, if not recently accessed, the inode may be evicted
-	listElement       *list.Element               // If != nil, maintains position on globals.inodeEvictionLRU identified by .inodeNumber ordered by .xTime
-	fhMap             map[uint64]*fhStruct        // Key == fhStruct.nonce; Value == *fhStruct
-	physChildInodeMap *stringToUint64MapStruct    // [inodeType != FileObject] maps dirEntries of type FileObject or PseudoDir for which there are existing backend objects
-	virtChildInodeMap *stringToUint64MapStruct    // [inodeType != FileObject] maps dirEntries "." and ".." as well as others of type BackendRootDir plus those of type FileObject or PseudoDir for which there doesn't yet exist backing objects
-	cache             map[uint64]*cacheLineStruct // [inodeType == FileObject] Key == file offset / globals.config.cacheLineSize
+	inodeNumber            uint64                      // Note that, other than the FUSERootDir, any reference to a backend object path migtht change this value
+	inodeType              uint32                      // One of FileObject, FUSERootDir, BackendRootDir, or PseudoDir
+	backend                *backendStruct              // If inodeType == FUSERootDir, == nil
+	parentInodeNumber      uint64                      // If inodeType == FUSERootDir, == .inodeNumber == FUSERootDirInodeNumber [Note: This is only a reference to a directory that may no longer be in globalsStruct.inodeMap]
+	isVirt                 bool                        // If == true, found on parent inodeStruct's .virtChild{Dir|File}Map; if == false, likely found on parent inodeStruct's .physChild{Dir|File}Map
+	objectPath             string                      // If inodeType == FUSERootDir, == ""; otherwise == path relative to backend.backendPath [inluding trailing slash if directory]
+	basename               string                      // If inodeType == FUSERootDir, == ""; otherwise == path/filepath.Base(.objectPath) [excluding trailing slash if directory]
+	sizeInBackend          uint64                      // If inodeType == FileObject, contains the size returned by the most recent backend call for it; otherwise == 0
+	sizeInMemory           uint64                      // If inodeType == FileObject, contains the size currently maintained in-memory only until the file is written to the backend; otherwise == 0
+	eTag                   string                      // If inodeType == FileObject, contains the eTag returned by the most recent call to readFileWrapper() for the object; otherwise == ""
+	mode                   uint32                      // If inodeType == FileObject, == (syscall.S_IFREG | file_perm); otherwise, == (syscall.S_IFDIR | dir_perm)
+	mTime                  time.Time                   // Time when this inodeStruct was last modified - note this is reported for aTime, bTime, and cTime as well
+	xTime                  time.Time                   // If != time.Time{}, marks the time when, if not recently accessed, the inode may be evicted
+	listElement            *list.Element               // If != nil, maintains position on globals.inodeEvictionLRU identified by .inodeNumber ordered by .xTime
+	fhMap                  map[uint64]*fhStruct        // Key == fhStruct.nonce; Value == *fhStruct
+	physChildInodeMap      *stringToUint64MapStruct    // [inodeType != FileObject] maps dirEntries of type FileObject or PseudoDir for which there are existing backend objects
+	virtChildInodeMap      *stringToUint64MapStruct    // [inodeType != FileObject] maps dirEntries "." and ".." as well as others of type BackendRootDir plus those of type FileObject or PseudoDir for which there doesn't yet exist backing objects
+	cache                  map[uint64]*cacheLineStruct // [inodeType == FileObject] Key == file offset / globals.config.cacheLineSize
+	inboundCacheLineCount  uint64                      // [inodeType == FileObject] cound of .cache[] elements in state CacheLineInbound
+	outboundCacheLineCount uint64                      // [inodeType == FileObject] cound of .cache[] elements in state CacheLineOutbound
+	dirtyCacheLineCount    uint64                      // [inodeType == FileObject] cound of .cache[] elements in state CacheLineDirty
 }
 
 // `globalsStruct` is the sync.Mutex protected global data structure under which all details about daemon state are tracked.

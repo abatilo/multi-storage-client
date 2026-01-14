@@ -497,20 +497,26 @@ func (*globalsStruct) DoOpen(inHeader *fission.InHeader, openIn *fission.OpenIn)
 // `DoRead` implements the package fission callback to read a portion of a file inode's contents.
 func (*globalsStruct) DoRead(inHeader *fission.InHeader, readIn *fission.ReadIn) (readOut *fission.ReadOut, errno syscall.Errno) {
 	var (
-		cacheLine            *cacheLineStruct
-		cacheLineHits        uint64 // As this is the fall-thru condition, includes +cacheMisses+cacheWaits
-		cacheLineNumber      uint64
-		cacheLineMisses      uint64
-		cacheLineOffsetLimit uint64 // One greater than offset to last byte to return
-		cacheLineOffsetStart uint64
-		cacheLineWaiter      sync.WaitGroup
-		cacheLineWaits       uint64
-		curOffset            = readIn.Offset
-		fh                   *fhStruct
-		inode                *inodeStruct
-		latency              float64
-		ok                   bool
-		startTime            = time.Now()
+		cacheLine                       *cacheLineStruct
+		cacheLineHits                   uint64 // As this is the fall-thru condition, includes +cacheMisses+cacheWaits
+		cacheLineNumber                 uint64
+		cacheLineNumberMaxInBackend     uint64
+		cacheLineMisses                 uint64
+		cacheLineOffsetLimit            uint64 // One greater than offset to last byte to return
+		cacheLineOffsetStart            uint64
+		cacheLineWaiter                 sync.WaitGroup
+		cacheLineWaits                  uint64
+		cacheLinesToPotentiallyPrefetch uint64
+		curOffset                       = readIn.Offset
+		fh                              *fhStruct
+		inode                           *inodeStruct
+		latency                         float64
+		ok                              bool
+		prefetchCacheLinesIssued        uint64
+		prefetchCacheLineNumber         uint64
+		prefetchCacheLineNumberMax      uint64
+		prefetchCacheLineNumberMin      uint64
+		startTime                       = time.Now()
 	)
 
 	defer func() {
@@ -538,10 +544,12 @@ func (*globalsStruct) DoRead(inHeader *fission.InHeader, readIn *fission.ReadIn)
 		globals.fissionMetrics.ReadCacheHits.Add(float64(cacheLineHits - cacheLineMisses - cacheLineWaits))
 		globals.fissionMetrics.ReadCacheMisses.Add(float64(cacheLineMisses))
 		globals.fissionMetrics.ReadCacheWaits.Add(float64(cacheLineWaits))
+		globals.fissionMetrics.ReadCachePrefetches.Add(float64(prefetchCacheLinesIssued))
 		if (inode != nil) && (inode.backend != nil) {
 			inode.backend.fissionMetrics.ReadCacheHits.Add(float64(cacheLineHits - cacheLineMisses - cacheLineWaits))
 			inode.backend.fissionMetrics.ReadCacheMisses.Add(float64(cacheLineMisses))
 			inode.backend.fissionMetrics.ReadCacheWaits.Add(float64(cacheLineWaits))
+			inode.backend.fissionMetrics.ReadCachePrefetches.Add(float64(prefetchCacheLinesIssued))
 		}
 		globals.Unlock()
 	}()
@@ -612,12 +620,45 @@ func (*globalsStruct) DoRead(inHeader *fission.InHeader, readIn *fission.ReadIn)
 
 			inode.cache[cacheLineNumber] = cacheLine
 
+			inode.inboundCacheLineCount++
 			globals.inboundCacheLineCount++
 
 			go cacheLine.fetch()
 
 			if globals.config.cacheLinesToPrefetch > 0 {
-				go cachePrefetch(inode.inodeNumber, cacheLineNumber)
+				cacheLineNumberMaxInBackend = ((inode.sizeInBackend + globals.config.cacheLineSize - 1) / globals.config.cacheLineSize) - 1
+
+				if cacheLineNumberMaxInBackend >= (cacheLineNumber + globals.config.cacheLinesToPrefetch) {
+					cacheLinesToPotentiallyPrefetch = globals.config.cacheLinesToPrefetch
+				} else {
+					cacheLinesToPotentiallyPrefetch = cacheLineNumberMaxInBackend - cacheLineNumber
+				}
+
+				if cacheLinesToPotentiallyPrefetch > 0 {
+					prefetchCacheLineNumberMin = cacheLineNumber + 1
+					prefetchCacheLineNumberMax = prefetchCacheLineNumberMin + cacheLinesToPotentiallyPrefetch - 1
+
+					for prefetchCacheLineNumber = prefetchCacheLineNumberMin; prefetchCacheLineNumber <= prefetchCacheLineNumberMax; prefetchCacheLineNumber++ {
+						_, ok = inode.cache[prefetchCacheLineNumber]
+						if !ok {
+							cacheLine = &cacheLineStruct{
+								state:       CacheLineInbound,
+								waiters:     make([]*sync.WaitGroup, 0, 1),
+								inodeNumber: inode.inodeNumber,
+								lineNumber:  prefetchCacheLineNumber,
+							}
+
+							inode.cache[prefetchCacheLineNumber] = cacheLine
+
+							inode.inboundCacheLineCount++
+							globals.inboundCacheLineCount++
+
+							go cacheLine.fetch()
+
+							prefetchCacheLinesIssued++
+						}
+					}
+				}
 			}
 
 			globals.Unlock()
