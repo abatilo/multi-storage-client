@@ -688,6 +688,10 @@ func checkConfigFile() (err error) {
 		err = errors.New("bad ttl_check_interval value")
 		return
 	}
+	if config.ttlCheckInterval <= time.Duration(0) {
+		err = errors.New("ttl_check_interval must be positive")
+		return
+	}
 
 	config.cacheLineSize, ok = parseUint64(configFileMap, "cache_line_size", uint64(1048576))
 	if !ok {
