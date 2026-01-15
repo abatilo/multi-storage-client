@@ -683,6 +683,12 @@ func checkConfigFile() (err error) {
 		return
 	}
 
+	config.ttlCheckInterval, ok = parseMilliseconds(configFileMap, "ttl_check_interval", 250*time.Millisecond)
+	if !ok {
+		err = errors.New("bad ttl_check_interval value")
+		return
+	}
+
 	config.cacheLineSize, ok = parseUint64(configFileMap, "cache_line_size", uint64(1048576))
 	if !ok {
 		err = errors.New("bad cache_line_size value")
@@ -1264,6 +1270,11 @@ func checkConfigFile() (err error) {
 
 		if globals.config.virtualFileTTL != config.virtualFileTTL {
 			err = errors.New("cannot change virtual_file_ttl via SIGHUP")
+			return
+		}
+
+		if globals.config.ttlCheckInterval != config.ttlCheckInterval {
+			err = errors.New("cannot change ttl_check_interval via SIGHUP")
 			return
 		}
 

@@ -477,8 +477,8 @@ func (inode *inodeStruct) touch(mTimeAsInterface interface{}) {
 	}
 }
 
-// `inodeEvictor` is a goroutine that periodically monitors the globals.inodeEvictionLRU
-// to see if any "phys" inodes should be evicted or "virt" inodes should be expired.
+// `inodeEvictor` is a goroutine that periodically monitors the cache and globals.inodeEvictionLRU
+// to see if cache limits need to be enforced or any "phys"/"virt" inodes should be evicted/expired.
 func inodeEvictor() {
 	var (
 		cacheLine        *cacheLineStruct
@@ -493,7 +493,7 @@ func inodeEvictor() {
 		xTime            time.Time
 	)
 
-	ticker = time.NewTicker(globals.config.evictableInodeTTL)
+	ticker = time.NewTicker(globals.config.ttlCheckInterval)
 
 	for {
 		select {

@@ -105,6 +105,7 @@ type configStruct struct {
 	evictableInodeTTL           time.Duration              // JSON/YAML "evictable_inode_ttl"             default:1000000 (in milliseconds)
 	virtualDirTTL               time.Duration              // JSON/YAML "virtual_dir_ttl"                 default:1000000 (in milliseconds)
 	virtualFileTTL              time.Duration              // JSON/YAML "virtual_file_ttl"                default:1000000 (in milliseconds)
+	ttlCheckInterval            time.Duration              // JSON/YAML "ttl_check_interval"              default:250 (in milliseconds)
 	cacheLineSize               uint64                     // JSON/YAML "cache_line_size"                 default:1048576 (1Mi)
 	cacheLines                  uint64                     // JSON/YAML "cache_lines"                     default:4096
 	cacheLinesToPrefetch        uint64                     // JSON/YAML "cache_lines_to_prefetch"         default:4

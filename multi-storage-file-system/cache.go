@@ -116,14 +116,6 @@ func (cacheLine *cacheLineStruct) notifyWaiters() {
 	cacheLine.waiters = make([]*sync.WaitGroup, 0, 1)
 }
 
-// `cacheFull` reports whether or not the cache is currently at (or
-// exceeding) the configured cap on cache lines. This call must be
-// made while holding the global lock.
-func cacheFull() (isFull bool) {
-	isFull = (globals.inboundCacheLineCount + uint64(globals.cleanCacheLineLRU.Len())) >= globals.config.cacheLines
-	return
-}
-
 // `cachePrune` is called to immediately attempt to trim globals.cleanCacheLineLRU
 // in an attempt to keep the sum of all cache lines at or below the configured cap.
 // Note: This call must be made while holding the globals.Lock().

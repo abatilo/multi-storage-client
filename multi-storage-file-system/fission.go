@@ -600,12 +600,6 @@ func (*globalsStruct) DoRead(inHeader *fission.InHeader, readIn *fission.ReadIn)
 
 		cacheLine, ok = inode.cache[cacheLineNumber]
 		if !ok {
-			if cacheFull() {
-				globals.Unlock()
-				cachePrune()
-				continue
-			}
-
 			cacheLineMisses++
 
 			cacheLine = &cacheLineStruct{
