@@ -26,6 +26,7 @@ from multistorageclient.utils import (
     AttributeFilterEvaluator,
     calculate_worker_processes_and_threads,
     create_attribute_filter_evaluator,
+    ensure_adequate_file_descriptors,
     expand_env_vars,
     extract_prefix_from_glob,
     get_available_cpu_count,
@@ -407,9 +408,39 @@ def test_calculate_worker_processes_and_threads_use_single_process(target_client
         processes, threads = calculate_worker_processes_and_threads(
             execution_mode=ExecutionMode.LOCAL, source_client=source_client, target_client=target_client
         )
+
+
+def test_ensure_adequate_file_descriptors():
+    import resource
+
+    original_soft, original_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    fd_limit = ensure_adequate_file_descriptors(target=4096)
+
+    assert fd_limit is not None
+    assert isinstance(fd_limit, int)
+    # Should return at least the original soft limit (or target if achievable)
+    assert fd_limit >= original_soft
+    # Should achieve target or hard limit, whichever is lower
+    assert fd_limit == min(4096, original_hard)
+
+
+@patch("multistorageclient.utils.get_available_cpu_count")
+@patch("multistorageclient.StorageClient")
+@patch("multistorageclient.StorageClient")
+def test_calculate_worker_processes_and_threads_rust_client(target_client, source_client, mock_get_cpu_count):
+    source_client._is_rust_client_enabled.return_value = True
+    target_client._is_rust_client_enabled.return_value = True
+
+    with patch.dict(os.environ, {}, clear=True):
+        # High CPU count - should use 1 process with max(cpu, 64) threads for Rust client
+        mock_get_cpu_count.return_value = 96
+        processes, threads = calculate_worker_processes_and_threads(
+            execution_mode=ExecutionMode.LOCAL, source_client=source_client, target_client=target_client
+        )
         assert processes == 1
         assert threads == 96
-        # Less than 64 CPUs, should use 64 threads and 1 process.
+
+        # Low CPU count - should use 64 threads minimum for Rust client
         mock_get_cpu_count.return_value = 8
         processes, threads = calculate_worker_processes_and_threads(
             execution_mode=ExecutionMode.LOCAL, source_client=source_client, target_client=target_client

@@ -328,6 +328,28 @@ def get_available_cpu_count() -> int:
     return multiprocessing.cpu_count()
 
 
+def ensure_adequate_file_descriptors(target: int = 4096) -> Optional[int]:
+    """
+    Attempt to increase the file descriptor soft limit to enable higher concurrency.
+
+    :param target: Target soft limit (default: 4096). Will be capped by hard limit.
+    :return: Actual soft limit after attempting to increase it, or None if unavailable
+    """
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft >= target:
+            return soft
+
+        new_soft = min(target, hard)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+        logger.info(f"Increased file descriptor limit from {soft} to {new_soft}")
+        return new_soft
+    except Exception:
+        return None
+
+
 def calculate_worker_processes_and_threads(
     num_worker_processes: Optional[int] = None,
     execution_mode: ExecutionMode = ExecutionMode.LOCAL,
@@ -337,6 +359,11 @@ def calculate_worker_processes_and_threads(
     """
     Calculate the number of worker processes and threads based on CPU count and environment variables.
 
+    This function automatically adjusts concurrency based on system resources including:
+    - Available CPU cores
+    - Execution mode (local vs distributed)
+    - Storage provider characteristics (Rust client, POSIX filesystem)
+
     :param num_worker_processes: The number of worker processes to use. If not provided, the number of processes will be
         calculated based on the CPU count and the MSC_NUM_PROCESSES environment variable.
     :param execution_mode: The execution mode to use.
@@ -345,6 +372,9 @@ def calculate_worker_processes_and_threads(
 
     :return: Tuple of (num_worker_processes, num_worker_threads)
     """
+    # Proactively increase file descriptor limit to prevent "too many open files" errors during high-concurrency operations
+    ensure_adequate_file_descriptors()
+
     cpu_count = get_available_cpu_count()
     default_processes = "8" if cpu_count > 8 else str(cpu_count)
     if num_worker_processes is None:
@@ -361,8 +391,9 @@ def calculate_worker_processes_and_threads(
                 for client in (source_client, target_client)
             ):
                 num_worker_processes = 1
-                # Ensure at least 64 threads for optimal performance on machines with fewer CPU cores
-                num_worker_threads = max(cpu_count, int(os.getenv("MSC_NUM_THREADS_PER_PROCESS", "64")))
+                num_worker_threads = max(cpu_count, 64)
+                if "MSC_NUM_THREADS_PER_PROCESS" in os.environ:
+                    num_worker_threads = int(os.environ["MSC_NUM_THREADS_PER_PROCESS"])
 
     return num_worker_processes, num_worker_threads
 
