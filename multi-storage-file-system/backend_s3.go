@@ -293,11 +293,11 @@ func (s3Context *s3ContextStruct) listDirectory(listDirectoryInput *listDirector
 			listDirectoryOutput.nextContinuationToken = *s3ListObjectsV2Output.NextContinuationToken
 		}
 
-		if s3ListObjectsV2Output.IsTruncated == nil {
-			listDirectoryOutput.isTruncated = false
-		} else {
-			listDirectoryOutput.isTruncated = *s3ListObjectsV2Output.IsTruncated
-		}
+		// AWS S3 neglects to set s3ListObjectsV2Output.IsTruncated properly, so we
+		// instead compute our listDirectoryOutput.isTruncated value on whether or now
+		// listDirectoryOutput.nextContinuationToken is above set to a non-empty string
+
+		listDirectoryOutput.isTruncated = (listDirectoryOutput.nextContinuationToken != "")
 
 		for _, s3CommonPrefix = range s3ListObjectsV2Output.CommonPrefixes {
 			listDirectoryOutput.subdirectory = append(listDirectoryOutput.subdirectory, strings.TrimSuffix(strings.TrimPrefix(*s3CommonPrefix.Prefix, fullDirPath), "/"))
