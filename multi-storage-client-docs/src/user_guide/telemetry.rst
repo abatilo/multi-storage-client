@@ -42,13 +42,7 @@ Telemetry can be configured with the ``opentelemetry`` dictionary in the MSC con
          type: otlp
          options:
            # OpenTelemetry Collector default local HTTP endpoint.
-           endpoint: http://localhost:4318/v1/traces
-     traces:
-       exporter:
-         type: otlp
-         options:
-           # OpenTelemetry Collector default local HTTP endpoint.
-           endpoint: http://localhost:4318/v1/traces
+           endpoint: http://localhost:4318/v1/metrics
 
 .. code-block:: python
    :caption: Example usage with automatic telemetry initialization.

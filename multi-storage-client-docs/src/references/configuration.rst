@@ -30,7 +30,7 @@ The top-level configuration schema consists of six main sections:
 
 * ``opentelemetry``
 
-  * Configuration for OpenTelemetry metrics and tracing exporters.
+  * Configuration for OpenTelemetry metrics exporters.
 
 * ``path_mapping``
 
@@ -1013,11 +1013,9 @@ Options:
 OpenTelemetry
 *************
 
-MSC supports OpenTelemetry for collecting client-side metrics and traces to help monitor and debug your application's
-storage operations. This includes:
+MSC supports OpenTelemetry for collecting client-side metrics to help monitor and debug your application's storage operations. This includes:
 
 * Metrics about storage operations.
-* Traces showing the flow of storage operations and their timing.
 
 The OpenTelemetry configuration schema consists of these sections:
 
@@ -1025,18 +1023,11 @@ The OpenTelemetry configuration schema consists of these sections:
 
   * Metrics configuration dictionary.
 
-* ``traces``
-
-  * Traces configuration dictionary.
-
 .. code-block:: yaml
    :caption: OpenTelemetry schema.
 
    # Optional. Metrics configuration.
    metrics: <metrics_config>
-
-   # Optional. Traces configuration.
-   traces: <traces_config>
 
 .. code-block:: yaml
    :caption: Example configuration.
@@ -1069,13 +1060,7 @@ The OpenTelemetry configuration schema consists of these sections:
          type: otlp
          options:
            # OpenTelemetry Collector default local HTTP endpoint.
-           endpoint: http://localhost:4318/v1/traces
-     traces:
-       exporter:
-         type: otlp
-         options:
-           # OpenTelemetry Collector default local HTTP endpoint.
-           endpoint: http://localhost:4318/v1/traces
+           endpoint: http://localhost:4318/v1/metrics
 
 Metrics
 =======
