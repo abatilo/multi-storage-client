@@ -33,25 +33,70 @@ Key Features
 Installation
 ============
 
-The MSFS binary can be installed using the provided installation script:
+Download from GitHub Releases
+=============================
+
+The easiest way to install MSFS is to download pre-built packages from the `GitHub releases page <https://github.com/NVIDIA/multi-storage-client/releases>`_.
+
+Download the release archive:
+
+#. Navigate to the `releases page <https://github.com/NVIDIA/multi-storage-client/releases>`_
+#. Download either ``msfs.zip`` or ``msfs.tar.gz`` from the latest release assets
+
+Extract the archive:
 
 .. code-block:: bash
+   :caption: Extract the release archive.
 
-   cd multi-storage-file-system
-   sudo make install
+   # For ZIP archive
+   unzip msfs.zip
 
-This installs:
+   # For TAR.GZ archive
+   tar -xzf msfs.tar.gz
+
+The archive contains:
+
+- **RPM packages**: ``msfs-<version>-1.x86_64.rpm`` and ``msfs-<version>-1.aarch64.rpm``
+- **DEB packages**: ``msfs_<version>_amd64.deb`` and ``msfs_<version>_arm64.deb``
+- **Install script**: ``msfs_install.sh``
+- **Uninstall script**: ``msfs_uninstall.sh``
+
+Install MSFS:
+
+.. code-block:: bash
+   :caption: Install MSFS using the install script.
+
+   sudo ./msfs_install.sh
+
+The install script automatically:
+
+- **Detects your system architecture** (x86_64 or aarch64) using ``uname -m``
+- **Detects your package manager** (dpkg for Debian/Ubuntu or rpm for RHEL/CentOS/Fedora)
+- **Selects and installs the correct package** for your system
+
+You do not need to manually specify which package to install. The script handles architecture and package format detection automatically.
+
+Uninstall MSFS:
+
+.. code-block:: bash
+   :caption: Uninstall MSFS using the uninstall script.
+
+   sudo ./msfs_uninstall.sh
+
+The uninstall script automatically detects your package manager and removes MSFS accordingly.
+
+After installation, MSFS provides:
 
 - ``/usr/local/bin/msfs`` - The FUSE daemon binary
 - ``/usr/sbin/mount.msfs`` - Mount helper for standard ``mount`` command
 
-.. note::
+Build from Source
+=================
 
-   Installation paths and procedures are for Debian-based systems. RPM-based systems may have different installation paths and requirements.
-
-Alternatively, you can build from source:
+Alternatively, you can build MSFS from source:
 
 .. code-block:: bash
+   :caption: Build MSFS from source.
 
    cd multi-storage-file-system
    make
