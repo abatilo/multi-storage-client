@@ -16,6 +16,7 @@
 import importlib.metadata as importlib_metadata
 import logging
 import os
+import queue
 import threading
 import time
 from abc import abstractmethod
@@ -50,6 +51,8 @@ _TELEMETRY_ATTRIBUTES_PROVIDER_MAPPING = {
     "static": "multistorageclient.telemetry.attributes.static.StaticAttributesProvider",
     "thread": "multistorageclient.telemetry.attributes.thread.ThreadAttributesProvider",
 }
+
+MAX_ASYNC_QUEUE_SIZE = 100_000
 
 
 class BaseStorageProvider(StorageProvider):
@@ -118,8 +121,24 @@ class BaseStorageProvider(StorageProvider):
         self._metric_attributes_providers = ()
         self._metric_init_lock = threading.Lock()
 
+        # Async telemetry support
+        self._async_metrics_enabled = False
+        self._metrics_queue: Optional["queue.Queue[Optional[dict]]"] = None
+        self._metrics_worker: Optional[threading.Thread] = None
+        self._metrics_worker_shutdown = threading.Event()
+        self._metrics_dropped_count = 0
+        self._metrics_dropped_count_lock = threading.Lock()
+
     def __str__(self) -> str:
         return self._provider_name
+
+    def __del__(self) -> None:
+        """Destructor to ensure async telemetry is shutdown."""
+        if self._async_metrics_enabled and self._metrics_worker is not None:
+            try:
+                self._shutdown_async_telemetry()
+            except Exception as e:
+                logger.warning(f"Failed to shutdown async telemetry: {e}", exc_info=True)
 
     def _init_metrics(self) -> None:
         """
@@ -140,6 +159,7 @@ class BaseStorageProvider(StorageProvider):
                             telemetry = self._telemetry_provider()
 
                             metrics_config: Optional[dict[str, Any]] = opentelemetry_config.get("metrics")
+
                             if metrics_config is not None:
                                 for name in Telemetry.GaugeName:
                                     self._metric_gauges[name] = telemetry.gauge(config=metrics_config, name=name)
@@ -173,9 +193,194 @@ class BaseStorageProvider(StorageProvider):
                                         attributes_provider: AttributesProvider = cls(**attributes_provider_options)
                                         attributes_providers.append(attributes_provider)
                                     self._metric_attributes_providers = tuple(attributes_providers)
-                        except Exception:
-                            logger.warning("Failed to setup metrics! Disabling metrics.", exc_info=True)
+
+                                # Initialize async telemetry if enabled
+                                reader_config: Optional[dict[str, Any]] = metrics_config.get("reader")
+
+                                if reader_config is not None:
+                                    self._async_metrics_enabled = reader_config.get("async", False)
+
+                                if self._async_metrics_enabled:
+                                    self._init_async_telemetry()
+                        except Exception as e:
+                            logger.warning(f"Failed to setup metrics: {e}", exc_info=True)
                 self._metric_init_event.set()
+
+    def _init_async_telemetry(self) -> None:
+        """Initialize async telemetry queue and worker thread."""
+        self._metrics_queue = queue.Queue(maxsize=MAX_ASYNC_QUEUE_SIZE)
+
+        self._metrics_worker = threading.Thread(
+            target=self._metrics_worker_loop, name="MSC-Metrics-Worker", daemon=True
+        )
+        self._metrics_worker.start()
+
+    def _shutdown_async_telemetry(self) -> None:
+        """Shutdown async telemetry gracefully."""
+        if self._metrics_queue is not None and self._metrics_worker is not None:
+            self._metrics_worker_shutdown.set()
+
+            try:
+                self._metrics_queue.put(None, timeout=1.0)
+            except queue.Full:
+                logger.warning("Metrics queue full, skipping shutdown")
+
+            self._metrics_worker.join(timeout=10.0)
+
+            # Try to flush remaining metrics, but don't fail if telemetry is gone
+            remaining_count = self._metrics_queue.qsize()
+            if remaining_count > 0:
+                while not self._metrics_queue.empty():
+                    try:
+                        metric = self._metrics_queue.get_nowait()
+                        if metric is not None:
+                            self._record_metric_sync(metric)
+                    except queue.Empty:
+                        break
+                    except (EOFError, BrokenPipeError):
+                        # Telemetry connection closed - stop trying to flush
+                        logger.warning("Telemetry connection closed during shutdown, skipping remaining metrics")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Error flushing metric during shutdown: {e}")
+
+            if self._metrics_dropped_count > 0:
+                logger.warning(f"Dropped {self._metrics_dropped_count} metrics due to queue full")
+
+    def _calculate_data_size(self, result: Any, operation: _Operation, error_type: Optional[str]) -> Optional[int]:
+        """Calculate data size from operation result.
+
+        :param result: The result from the operation
+        :param operation: The operation type
+        :param error_type: The type of error that occurred
+        :return: Data size in bytes, or None if not applicable
+        """
+        if operation not in BaseStorageProvider._DATA_IO_OPERATIONS or error_type is not None:
+            return None
+
+        data_size: Optional[int] = None
+
+        if isinstance(result, bytes):
+            data_size = len(result)
+        elif isinstance(result, str):
+            data_size = len(result) if result.isascii() else len(result.encode())
+        elif isinstance(result, int):
+            data_size = result
+        elif isinstance(result, list) and len(result) > 0:
+            if isinstance(result[0], bytes):
+                data_size = sum(len(item) for item in result)
+            elif isinstance(result[0], str):
+                data_size = sum(len(item) if item.isascii() else len(item.encode()) for item in result)
+
+        return data_size
+
+    def _build_base_attributes(self, operation: _Operation) -> api_types.Attributes:
+        """Build base attributes for metrics.
+
+        :param operation: The operation type
+        :return: Attributes dictionary
+        """
+        return {
+            **(collect_attributes(attributes_providers=self._metric_attributes_providers) or {}),
+            BaseStorageProvider._AttributeName.VERSION.value: self._VERSION,
+            BaseStorageProvider._AttributeName.PROVIDER.value: self._provider_name,
+            BaseStorageProvider._AttributeName.OPERATION.value: operation.value,
+        }
+
+    def _build_status_attributes(
+        self, base_attributes: api_types.Attributes, error_type: Optional[str]
+    ) -> api_types.Attributes:
+        """Build attributes with status information.
+
+        :param base_attributes: Base attributes dictionary
+        :param error_type: The type of error that occurred
+        :return: Attributes dictionary with status
+        """
+        assert base_attributes is not None, "Base attributes must not be None"
+        return {
+            **base_attributes,
+            BaseStorageProvider._AttributeName.STATUS.value: (
+                BaseStorageProvider._Status.SUCCESS.value
+                if error_type is None
+                else f"{BaseStorageProvider._Status.ERROR.value}.{error_type}"
+            ),
+        }
+
+    def _metrics_worker_loop(self) -> None:
+        """Background thread that processes queued metrics."""
+        assert self._metrics_queue is not None, "Metrics queue must be initialized"
+        while not self._metrics_worker_shutdown.is_set():
+            try:
+                metric_data = self._metrics_queue.get(timeout=1.0)
+
+                if metric_data is None:
+                    break
+
+                self._record_metric_sync(metric_data)
+            except queue.Empty:
+                continue
+            except (EOFError, BrokenPipeError):
+                # Telemetry manager connection closed - stop processing
+                logger.warning("Telemetry connection closed, stopping metrics worker")
+                break
+            except Exception as e:
+                logger.error(f"Error in metrics worker thread: {e}", exc_info=True)
+
+    def _record_metrics(
+        self,
+        operation: _Operation,
+        latency: float,
+        data_size: Optional[int],
+        error_type: Optional[str],
+    ) -> None:
+        """Record metrics for an operation.
+
+        :param operation: The operation type
+        :param latency: Operation latency in seconds
+        :param data_size: Data size in bytes (if applicable)
+        :param error_type: The type of error that occurred
+        """
+        metric_latency = self._metric_gauges.get(Telemetry.GaugeName.LATENCY)
+        metric_data_size = self._metric_gauges.get(Telemetry.GaugeName.DATA_SIZE)
+        metric_data_rate = self._metric_gauges.get(Telemetry.GaugeName.DATA_RATE)
+        metric_request_sum = self._metric_counters.get(Telemetry.CounterName.REQUEST_SUM)
+        metric_response_sum = self._metric_counters.get(Telemetry.CounterName.RESPONSE_SUM)
+        metric_data_size_sum = self._metric_counters.get(Telemetry.CounterName.DATA_SIZE_SUM)
+
+        attributes = self._build_base_attributes(operation)
+
+        if metric_request_sum is not None:
+            metric_request_sum.add(1, attributes=attributes)
+
+        attributes_with_status = self._build_status_attributes(attributes, error_type)
+
+        if metric_latency is not None:
+            metric_latency.set(latency, attributes=attributes_with_status)
+        if metric_response_sum is not None:
+            metric_response_sum.add(1, attributes=attributes_with_status)
+
+        if data_size is not None:
+            if metric_data_size is not None:
+                metric_data_size.set(data_size, attributes=attributes_with_status)
+            if metric_data_rate is not None:
+                metric_data_rate.set(data_size / latency, attributes=attributes_with_status)
+            if metric_data_size_sum is not None:
+                metric_data_size_sum.add(data_size, attributes=attributes_with_status)
+
+    def _record_metric_sync(self, metric_data: dict) -> None:
+        """Record a metric synchronously (called from worker thread)."""
+        try:
+            self._record_metrics(
+                operation=metric_data["operation"],
+                latency=metric_data["latency"],
+                data_size=metric_data.get("data_size"),
+                error_type=metric_data.get("error_type"),
+            )
+        except (EOFError, BrokenPipeError):
+            # Telemetry manager connection closed - re-raise to stop worker
+            raise
+        except Exception as e:
+            logger.warning(f"Failed to record metric: {e}")
 
     def _emit_metrics(self, operation: _Operation, f: Callable[[], _T]) -> _T:
         """
@@ -189,28 +394,19 @@ class BaseStorageProvider(StorageProvider):
         if not self._metric_init_event.is_set():
             self._init_metrics()
 
-        metric_latency = self._metric_gauges.get(Telemetry.GaugeName.LATENCY)
-        metric_data_size = self._metric_gauges.get(Telemetry.GaugeName.DATA_SIZE)
-        metric_data_rate = self._metric_gauges.get(Telemetry.GaugeName.DATA_RATE)
-        metric_request_sum = self._metric_counters.get(Telemetry.CounterName.REQUEST_SUM)
-        metric_response_sum = self._metric_counters.get(Telemetry.CounterName.RESPONSE_SUM)
-        metric_data_size_sum = self._metric_counters.get(Telemetry.CounterName.DATA_SIZE_SUM)
+        # Async path: queue metrics for background recording
+        if self._async_metrics_enabled and self._metrics_queue is not None:
+            return self._emit_metrics_async(operation, f)
 
-        attributes: api_types.Attributes = {
-            **(collect_attributes(attributes_providers=self._metric_attributes_providers) or {}),
-            BaseStorageProvider._AttributeName.VERSION.value: self._VERSION,
-            BaseStorageProvider._AttributeName.PROVIDER.value: self._provider_name,
-            BaseStorageProvider._AttributeName.OPERATION.value: operation.value,
-        }
+        # Synchronous path: existing implementation
+        return self._emit_metrics_sync(operation, f)
 
-        if metric_request_sum is not None:
-            metric_request_sum.add(1, attributes=attributes)
-
+    def _emit_metrics_async(self, operation: _Operation, f: Callable[[], _T]) -> _T:
+        """Async metric emission - queue for background processing."""
         error: Optional[Exception] = None
-        # Make the type checker happy.
         result: _T = cast(_T, None)
-        # Use a monotonic clock.
-        start_time: float = time.perf_counter()
+
+        start_time = time.perf_counter()
         try:
             result = f()
             return result
@@ -218,56 +414,40 @@ class BaseStorageProvider(StorageProvider):
             error = e
             raise e
         finally:
-            latency: float = time.perf_counter() - start_time
+            error_type = type(error).__name__ if error else None
+            latency = time.perf_counter() - start_time
+            data_size = self._calculate_data_size(result, operation, error_type)
 
-            attributes_with_status: api_types.Attributes = {
-                **(attributes or {}),
-                BaseStorageProvider._AttributeName.STATUS.value: (
-                    BaseStorageProvider._Status.SUCCESS.value
-                    if error is None
-                    else f"{BaseStorageProvider._Status.ERROR.value}.{type(error).__name__}"
-                ),
+            metric_data = {
+                "operation": operation,
+                "latency": latency,
+                "data_size": data_size,
+                "error_type": error_type,
             }
 
-            if metric_latency is not None:
-                metric_latency.set(latency, attributes=attributes_with_status)
-            if metric_response_sum is not None:
-                metric_response_sum.add(1, attributes=attributes_with_status)
+            try:
+                assert self._metrics_queue is not None, "Metrics queue must be initialized"
+                self._metrics_queue.put_nowait(metric_data)
+            except queue.Full:
+                with self._metrics_dropped_count_lock:
+                    self._metrics_dropped_count += 1
 
-            # Don't emit data size + rate metrics on failure.
-            #
-            # We don't know how much data was read/written before failure, so the resulting metrics may be misleading.
-            if operation in BaseStorageProvider._DATA_IO_OPERATIONS and error is None:
-                # Placeholder in case an unhandled data I/O operation is added.
-                data_size: Optional[int] = None
-
-                # For _get_object.
-                if isinstance(result, bytes):
-                    data_size = len(result)
-                # For text mode file operations (read/readline in text mode)
-                elif isinstance(result, str):
-                    if result.isascii():
-                        data_size = len(result)
-                    else:
-                        # For non-ASCII strings, we need to encode them to bytes and then get the length
-                        data_size = len(result.encode())
-                # For _put_object + _copy_object + _upload_file + _download_file (return the data size).
-                elif isinstance(result, int):
-                    data_size = result
-                # For operations like readlines() that return list[bytes] or list[str]
-                elif isinstance(result, list) and len(result) > 0:
-                    if isinstance(result[0], bytes):
-                        data_size = sum(len(item) for item in result)
-                    elif isinstance(result[0], str):
-                        data_size = sum(len(item) if item.isascii() else len(item.encode()) for item in result)
-
-                if data_size is not None:
-                    if metric_data_size is not None:
-                        metric_data_size.set(data_size, attributes=attributes_with_status)
-                    if metric_data_rate is not None:
-                        metric_data_rate.set(data_size / latency, attributes=attributes_with_status)
-                    if metric_data_size_sum is not None:
-                        metric_data_size_sum.add(data_size, attributes=attributes_with_status)
+    def _emit_metrics_sync(self, operation: _Operation, f: Callable[[], _T]) -> _T:
+        """Synchronous metric emission - original implementation."""
+        error: Optional[Exception] = None
+        result: _T = cast(_T, None)
+        start_time = time.perf_counter()
+        try:
+            result = f()
+            return result
+        except Exception as e:
+            error = e
+            raise e
+        finally:
+            error_type = type(error).__name__ if error else None
+            latency = time.perf_counter() - start_time
+            data_size = self._calculate_data_size(result, operation, error_type)
+            self._record_metrics(operation, latency, data_size, error_type)
 
     def _append_delimiter(self, s: str, delimiter: str = "/") -> str:
         if not s.endswith(delimiter):
