@@ -86,6 +86,33 @@ func (*globalsStruct) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 
 	switch {
+	case r.RequestURI == "/":
+		if strings.Contains(r.Header.Get("Accept"), "text/html") {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "<!DOCTYPE html>\n<html>\n<head><title>MSFS Endpoints</title></head>\n<body>\n")
+			fmt.Fprintf(w, "<h1>Endpoints</h1>\n<ul>\n")
+			fmt.Fprintf(w, "  <li><a href=\"/backends\">/backends</a></li>\n")
+			fmt.Fprintf(w, "  <li><a href=\"/drain\">/drain</a></li>\n")
+			fmt.Fprintf(w, "  <li><a href=\"/metrics\">/metrics</a></li>\n")
+			globals.Lock()
+			for _, backend = range globals.config.backends {
+				fmt.Fprintf(w, "  <li><a href=\"/metrics/%s\">/metrics/%s</a></li>\n", backend.dirName, backend.dirName)
+			}
+			globals.Unlock()
+			fmt.Fprintf(w, "</ul>\n</body>\n</html>\n")
+		} else {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "Endpoints:\n")
+			fmt.Fprintf(w, "  /backends\n")
+			fmt.Fprintf(w, "  /drain\n")
+			fmt.Fprintf(w, "  /metrics\n")
+			globals.Lock()
+			for _, backend = range globals.config.backends {
+				fmt.Fprintf(w, "  /metrics/%s\n", backend.dirName)
+			}
+			globals.Unlock()
+		}
 	case r.RequestURI == "/backends":
 		w.WriteHeader(http.StatusOK)
 

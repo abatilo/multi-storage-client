@@ -310,7 +310,7 @@ func listDirectoryWrapper(backendContext backendContextIf, listDirectoryInput *l
 		}
 	default:
 		if err == nil {
-			globals.logger.Printf("[INFO] %s.listDirectory(%#v) returning listDirectoryOutput: {len(\"subdirectory\"):%v,len(\"file\"):%v,nextContinuationToken:\"%s\",isTrunctated:%v}", backendCommon.dirName, listDirectoryInput, len(listDirectoryOutput.subdirectory), len(listDirectoryOutput.file), listDirectoryOutput.nextContinuationToken, listDirectoryOutput.isTruncated)
+			globals.logger.Printf("[INFO] %s.listDirectory(%#v) returning listDirectoryOutput: {len(\"subdirectory\"):%v,len(\"file\"):%v,nextContinuationToken:\"%s\",isTruncated:%v}", backendCommon.dirName, listDirectoryInput, len(listDirectoryOutput.subdirectory), len(listDirectoryOutput.file), listDirectoryOutput.nextContinuationToken, listDirectoryOutput.isTruncated)
 		} else {
 			globals.logger.Printf("[WARN] %s.listDirectory(%#v) returning err: %v", backendCommon.dirName, listDirectoryInput, err)
 		}
