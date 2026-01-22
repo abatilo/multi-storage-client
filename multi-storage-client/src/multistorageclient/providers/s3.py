@@ -43,6 +43,7 @@ from ..types import (
 )
 from ..utils import (
     get_available_cpu_count,
+    safe_makedirs,
     split_path,
     validate_attributes,
 )
@@ -718,7 +719,7 @@ class S3StorageProvider(BaseStorageProvider):
         if isinstance(f, str):
             bucket, key = split_path(remote_path)
             if os.path.dirname(f):
-                os.makedirs(os.path.dirname(f), exist_ok=True)
+                safe_makedirs(os.path.dirname(f))
 
             # Download small files
             if metadata.content_length <= self._transfer_config.multipart_threshold:

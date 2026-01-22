@@ -36,7 +36,7 @@ from ..types import (
     ObjectMetadata,
     Range,
 )
-from ..utils import split_path, validate_attributes
+from ..utils import safe_makedirs, split_path, validate_attributes
 from .base import BaseStorageProvider
 
 _T = TypeVar("_T")
@@ -411,7 +411,7 @@ class AIStoreStorageProvider(BaseStorageProvider):
 
         if isinstance(f, str):
             if os.path.dirname(f):
-                os.makedirs(os.path.dirname(f), exist_ok=True)
+                safe_makedirs(os.path.dirname(f))
             with open(f, "wb") as fp:
                 fp.write(self._get_object(remote_path))
         else:

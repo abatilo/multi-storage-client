@@ -29,7 +29,12 @@ import xattr
 
 from ..telemetry import Telemetry
 from ..types import AWARE_DATETIME_MIN, ObjectMetadata, Range
-from ..utils import create_attribute_filter_evaluator, matches_attribute_filter_expression, validate_attributes
+from ..utils import (
+    create_attribute_filter_evaluator,
+    matches_attribute_filter_expression,
+    safe_makedirs,
+    validate_attributes,
+)
 from .base import BaseStorageProvider
 
 _T = TypeVar("_T")
@@ -146,7 +151,7 @@ class PosixFileStorageProvider(BaseStorageProvider):
         attributes: Optional[dict[str, str]] = None,
     ) -> int:
         def _invoke_api() -> int:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            safe_makedirs(os.path.dirname(path))
             atomic_write(source=BytesIO(body), destination=path, attributes=attributes)
             return len(body)
 
@@ -168,7 +173,7 @@ class PosixFileStorageProvider(BaseStorageProvider):
         src_object = self._get_object_metadata(src_path)
 
         def _invoke_api() -> int:
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            safe_makedirs(os.path.dirname(dest_path))
             atomic_write(source=src_path, destination=dest_path, attributes=src_object.metadata)
 
             return src_object.content_length
@@ -308,7 +313,7 @@ class PosixFileStorageProvider(BaseStorageProvider):
             return
 
     def _upload_file(self, remote_path: str, f: Union[str, IO], attributes: Optional[dict[str, str]] = None) -> int:
-        os.makedirs(os.path.dirname(remote_path), exist_ok=True)
+        safe_makedirs(os.path.dirname(remote_path))
 
         filesize: int = 0
         if isinstance(f, str):
@@ -332,7 +337,7 @@ class PosixFileStorageProvider(BaseStorageProvider):
 
             def _invoke_api() -> int:
                 if os.path.dirname(f):
-                    os.makedirs(os.path.dirname(f), exist_ok=True)
+                    safe_makedirs(os.path.dirname(f))
                 atomic_write(source=remote_path, destination=f)
 
                 return filesize

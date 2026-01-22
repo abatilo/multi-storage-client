@@ -31,6 +31,7 @@ from .caching.cache_config import CacheConfig
 from .caching.cache_item import CacheItem
 from .caching.eviction_policy import FIFO, LRU, MRU, NO_EVICTION, RANDOM, EvictionPolicyFactory
 from .types import Range, SourceVersionCheckMode
+from .utils import safe_makedirs
 
 DEFAULT_CACHE_SIZE = "10G"
 DEFAULT_CACHE_SIZE_MB = "10000"
@@ -67,8 +68,8 @@ class CacheManager:
         self._cache_dir = os.path.abspath(cache_config.location or default_location)
         self._cache_path = os.path.join(self._cache_dir, self._profile)
         self._cache_temp_dir = os.path.join(self._cache_dir, f".tmp-{self._profile}")
-        os.makedirs(self._cache_path, exist_ok=True)
-        os.makedirs(self._cache_temp_dir, exist_ok=True)
+        safe_makedirs(self._cache_path)
+        safe_makedirs(self._cache_temp_dir)
 
         # Check if eviction policy is valid for this backend
         if not self._check_if_eviction_policy_is_valid(cache_config.eviction_policy.policy):
@@ -291,7 +292,7 @@ class CacheManager:
         """Store a file in the cache."""
         file_path = self._get_cache_file_path(key)
         # Ensure the directory exists
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        safe_makedirs(os.path.dirname(file_path))
 
         if isinstance(source, str):
             # Move the file to the cache directory
@@ -629,7 +630,7 @@ class CacheManager:
         :param source_version: The source version of the object
         :param cache_line_size: The size of each chunk in bytes
         """
-        os.makedirs(os.path.dirname(chunk_path), exist_ok=True)
+        safe_makedirs(os.path.dirname(chunk_path))
 
         with open(chunk_path, "wb") as f:
             f.write(chunk_data)

@@ -33,7 +33,7 @@ from ..types import (
     PreconditionFailedError,
     Range,
 )
-from ..utils import split_path, validate_attributes
+from ..utils import safe_makedirs, split_path, validate_attributes
 from .base import BaseStorageProvider
 
 _T = TypeVar("_T")
@@ -441,7 +441,7 @@ class AzureBlobStorageProvider(BaseStorageProvider):
 
         if isinstance(f, str):
             if os.path.dirname(f):
-                os.makedirs(os.path.dirname(f), exist_ok=True)
+                safe_makedirs(os.path.dirname(f))
 
             def _invoke_api() -> int:
                 blob_client = self._blob_service_client.get_blob_client(container=container_name, blob=blob_name)

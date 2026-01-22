@@ -30,6 +30,7 @@ from filelock import FileLock
 from ..constants import MEMORY_LOAD_LIMIT
 from ..providers.base import BaseStorageProvider
 from ..types import ObjectMetadata
+from ..utils import safe_makedirs
 from .types import ErrorInfo, EventLike, OperationType, QueueLike
 
 if TYPE_CHECKING:
@@ -286,7 +287,7 @@ def _copy_posix_to_posix(
     target_physical_path: str,
 ) -> None:
     """Copy file from POSIX source to POSIX target using shutil.copy2."""
-    os.makedirs(os.path.dirname(target_physical_path), exist_ok=True)
+    safe_makedirs(os.path.dirname(target_physical_path))
     shutil.copy2(source_physical_path, target_physical_path)
 
 

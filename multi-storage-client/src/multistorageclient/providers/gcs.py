@@ -47,6 +47,7 @@ from ..types import (
     RetryableError,
 )
 from ..utils import (
+    safe_makedirs,
     split_path,
     validate_attributes,
 )
@@ -717,7 +718,7 @@ class GoogleStorageProvider(BaseStorageProvider):
 
         if isinstance(f, str):
             if os.path.dirname(f):
-                os.makedirs(os.path.dirname(f), exist_ok=True)
+                safe_makedirs(os.path.dirname(f))
             # Download small files
             if metadata.content_length <= self._multipart_threshold:
                 if self._rust_client:

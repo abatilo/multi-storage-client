@@ -40,7 +40,7 @@ from ..types import (
     Range,
     RetryableError,
 )
-from ..utils import split_path, validate_attributes
+from ..utils import safe_makedirs, split_path, validate_attributes
 from .base import BaseStorageProvider
 
 _T = TypeVar("_T")
@@ -487,7 +487,7 @@ class OracleStorageProvider(BaseStorageProvider):
 
         if isinstance(f, str):
             if os.path.dirname(f):
-                os.makedirs(os.path.dirname(f), exist_ok=True)
+                safe_makedirs(os.path.dirname(f))
 
             def _invoke_api() -> int:
                 response = self._oci_client.get_object(

@@ -32,7 +32,7 @@ from .constants import MEMORY_LOAD_LIMIT
 from .instrumentation.utils import file_metrics
 from .providers.base import BaseStorageProvider
 from .types import Range, SourceVersionCheckMode
-from .utils import validate_attributes
+from .utils import safe_makedirs, validate_attributes
 
 if TYPE_CHECKING:
     from .client.types import AbstractStorageClient
@@ -629,7 +629,7 @@ class PosixFile(IOBase, IO):
 
         # Ensure the parent directory exists only for write/append modes
         if "w" in mode or "a" in mode:
-            os.makedirs(os.path.dirname(self._real_path), exist_ok=True)
+            safe_makedirs(os.path.dirname(self._real_path))
 
         if "w" in mode and self._atomic:
             # Create a temporary file in the same directory as the target file

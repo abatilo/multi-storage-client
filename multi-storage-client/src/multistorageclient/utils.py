@@ -21,6 +21,7 @@ import multiprocessing
 import os
 import re
 import shutil
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
@@ -34,6 +35,51 @@ if TYPE_CHECKING:
     from .client.types import AbstractStorageClient
 
 logger = logging.getLogger(__name__)
+
+
+def safe_makedirs(path: str, mode: int = 0o777, exist_ok: bool = True) -> None:
+    """
+    Create a directory with retry logic for distributed filesystem race conditions.
+
+    On distributed filesystems (e.g., Lustre, NFS), metadata propagation delays
+    can cause os.makedirs() to fail with FileNotFoundError even when exist_ok=True.
+    This happens when multiple workers on different nodes try to create directories
+    concurrently - one worker creates a directory but other nodes don't see it yet
+    due to cache inconsistencies or metadata server delays.
+
+    This function wraps os.makedirs() with retry logic to handle transient failures:
+    - Retries FileNotFoundError up to 5 times with exponential backoff
+    - Uses jitter to avoid thundering herd
+    - Tolerates FileExistsError when exist_ok=True
+
+    :param path: Directory path to create
+    :param mode: Directory permissions (default: 0o777)
+    :param exist_ok: If True, don't raise error if directory exists (default: True)
+    :raises FileNotFoundError: If directory creation fails after all retries
+    :raises OSError: For other filesystem errors
+    """
+    max_retries = 5
+    base_delay = 0.01
+
+    for attempt in range(max_retries):
+        try:
+            os.makedirs(path, mode=mode, exist_ok=exist_ok)
+            return
+        except FileExistsError:
+            if exist_ok:
+                return
+            raise
+        except FileNotFoundError:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt) + (time.time() % 0.01)
+                logger.debug(
+                    f"Directory creation failed (attempt {attempt + 1}/{max_retries}), "
+                    f"retrying after {delay:.3f}s: {path}"
+                )
+                time.sleep(delay)
+            else:
+                logger.error(f"Failed to create directory after {max_retries} attempts: {path}")
+                raise
 
 
 def split_path(path: str) -> tuple[str, str]:

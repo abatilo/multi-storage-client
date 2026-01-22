@@ -26,6 +26,7 @@ from huggingface_hub.hf_api import RepoFile, RepoFolder
 
 from ..telemetry import Telemetry
 from ..types import AWARE_DATETIME_MIN, Credentials, CredentialsProvider, ObjectMetadata, Range, RetryableError
+from ..utils import safe_makedirs
 from .base import BaseStorageProvider
 
 _T = TypeVar("_T")
@@ -765,7 +766,7 @@ class HuggingFaceStorageProvider(BaseStorageProvider):
             if isinstance(f, str):
                 parent_dir = os.path.dirname(f)
                 if parent_dir:
-                    os.makedirs(parent_dir, exist_ok=True)
+                    safe_makedirs(parent_dir)
 
                 target_dir = parent_dir if parent_dir else "."
                 downloaded_path = self._hf_client.hf_hub_download(
