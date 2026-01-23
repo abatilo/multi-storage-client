@@ -175,6 +175,8 @@ class ProducerThread(threading.Thread):
                     source_metadata = self.source_client.info(
                         source_file_path, strict=False
                     )  # don't check if the path is a directory
+                    if not self.preserve_source_attributes:
+                        source_metadata.metadata = None
                     yield source_metadata
                 except FileNotFoundError:
                     logger.warning(f"File in source_files not found at source: {source_file_path}")

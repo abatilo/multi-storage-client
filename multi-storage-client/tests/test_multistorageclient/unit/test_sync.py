@@ -1236,6 +1236,83 @@ def test_sync_between_object_and_posix(temp_data_store_type: type[tempdatastore.
     argnames=["temp_data_store_type"],
     argvalues=[[tempdatastore.TemporaryAWSS3Bucket]],
 )
+def test_sync_source_files_should_not_copy_attributes_when_preserve_false(
+    temp_data_store_type: type[tempdatastore.TemporaryDataStore],
+):
+    """Test that source_files respects preserve_source_attributes=False.
+
+    BUG: When using the source_files parameter, the producer calls info() to get
+    file metadata, which always fetches attributes. These attributes then flow to
+    the worker and get copied regardless of preserve_source_attributes setting.
+
+    This test demonstrates the bug by:
+    1. Creating source files WITH custom attributes
+    2. Syncing with source_files and preserve_source_attributes=False (default)
+    3. Verifying that attributes should NOT be copied to target
+
+    Expected behavior: No attributes should be copied when preserve_source_attributes=False
+    Actual behavior (bug): Attributes ARE copied because info() fetches them
+    """
+    msc.shortcuts._STORAGE_CLIENT_CACHE.clear()
+
+    obj_profile = "s3-sync"
+    with temp_data_store_type() as temp_data_store:
+        config.setup_msc_config(
+            config_dict={
+                "profiles": {
+                    obj_profile: temp_data_store.profile_config_dict(),
+                }
+            }
+        )
+
+        source_msc_url = f"msc://{obj_profile}/source-attrs"
+        target_msc_url = f"msc://{obj_profile}/target-no-attrs"
+
+        source_client, source_path = msc.resolve_storage_client(source_msc_url)
+        target_client, target_path = msc.resolve_storage_client(target_msc_url)
+
+        test_attributes = {"env": "test", "version": "1.0", "team": "ml"}
+        test_content = "test content for attribute test"
+
+        source_client.write(
+            os.path.join(source_path, "file_with_attrs.txt"),
+            test_content.encode("utf-8"),
+            attributes=test_attributes,
+        )
+
+        source_metadata = source_client.info(os.path.join(source_path, "file_with_attrs.txt"))
+        assert source_metadata.metadata == test_attributes, "Source file should have attributes"
+
+        time.sleep(1)
+
+        target_client.sync_from(
+            source_client,
+            source_path,
+            target_path,
+            source_files=["file_with_attrs.txt"],
+            preserve_source_attributes=False,
+        )
+
+        target_file_path = os.path.join(target_path, "file_with_attrs.txt")
+        assert target_client.is_file(target_file_path), "Target file should exist"
+
+        actual_content = target_client.read(target_file_path).decode("utf-8")
+        assert actual_content == test_content, "Content should match"
+
+        target_metadata = target_client.info(target_file_path)
+
+        assert target_metadata.metadata is None or target_metadata.metadata == {}, (
+            f"BUG: Attributes were copied even though preserve_source_attributes=False. "
+            f"Expected no attributes, got: {target_metadata.metadata}. "
+            f"When using source_files, the producer calls info() which fetches attributes, "
+            f"and these flow through to the worker regardless of the preserve flag."
+        )
+
+
+@pytest.mark.parametrize(
+    argnames=["temp_data_store_type"],
+    argvalues=[[tempdatastore.TemporaryAWSS3Bucket]],
+)
 def test_sync_uses_strict_false_for_get_object_metadata(
     temp_data_store_type: type[tempdatastore.TemporaryDataStore],
 ):
