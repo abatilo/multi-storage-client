@@ -944,6 +944,59 @@ def test_invalid_cache_config():
         StorageClientConfig.from_dict(config_dict, "test")
 
 
+def test_cache_config_line_size_exceeds_cache_size_error():
+    """Test that an error is raised when cache_line_size exceeds cache size."""
+    config_dict = {
+        "profiles": {
+            "test": {
+                "storage_provider": {"type": "file", "options": {"base_path": "/tmp/test_storage"}},
+                "caching_enabled": True,
+            }
+        },
+        "cache": {
+            "size": "32M",
+            "cache_line_size": "64M",  # Larger than cache size
+            "location": "/tmp/msc_cache",
+            "check_source_version": True,
+            "eviction_policy": {
+                "policy": "lru",
+                "refresh_interval": 300,
+            },
+        },
+    }
+
+    with pytest.raises(ValueError, match="cache_line_size.*exceeds cache size"):
+        StorageClientConfig.from_dict(config_dict, "test")
+
+
+def test_cache_config_line_size_within_cache_size_no_error():
+    """Test that no error is raised when cache_line_size is within cache size."""
+    config_dict = {
+        "profiles": {
+            "test": {
+                "storage_provider": {"type": "file", "options": {"base_path": "/tmp/test_storage"}},
+                "caching_enabled": True,
+            }
+        },
+        "cache": {
+            "size": "64M",
+            "cache_line_size": "32M",  # Smaller than cache size
+            "location": "/tmp/msc_cache",
+            "check_source_version": True,
+            "eviction_policy": {
+                "policy": "lru",
+                "refresh_interval": 300,
+            },
+        },
+    }
+
+    # Should not raise any error
+    config = StorageClientConfig.from_dict(config_dict, "test")
+    assert config.cache_config is not None
+    assert config.cache_config.size == "64M"
+    assert config.cache_config.cache_line_size == "32M"
+
+
 def test_profile_name_with_underscore() -> None:
     """Test that profile names cannot start with an underscore."""
     with pytest.raises(RuntimeError) as e:
@@ -1674,6 +1727,7 @@ def test_cache_config_both_flags_precedence() -> None:
     cfg_dict = _minimal_cache_profile(
         {
             "size": "10M",
+            "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
             "check_source_version": False,
             "use_etag": True,
         }
@@ -1691,6 +1745,7 @@ def test_cache_config_use_etag() -> None:
     cfg_dict = _minimal_cache_profile(
         {
             "size": "10M",
+            "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
             "use_etag": True,
         }
     )
@@ -1706,6 +1761,7 @@ def test_cache_config_check_source_version() -> None:
     cfg_dict = _minimal_cache_profile(
         {
             "size": "10M",
+            "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
             "check_source_version": True,
         }
     )
@@ -1721,6 +1777,7 @@ def test_cache_config_check_source_version_false() -> None:
     cfg_dict = _minimal_cache_profile(
         {
             "size": "10M",
+            "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
             "check_source_version": False,
         }
     )
@@ -1789,6 +1846,7 @@ def test_experimental_features_mru_disabled():
             },
             "cache": {
                 "size": "10M",
+                "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
                 "eviction_policy": {
                     "policy": "mru",  # Experimental feature
                 },
@@ -1817,6 +1875,7 @@ def test_experimental_features_mru_enabled():
             },
             "cache": {
                 "size": "10M",
+                "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
                 "eviction_policy": {
                     "policy": "mru",
                 },
@@ -1842,6 +1901,7 @@ def test_experimental_features_purge_factor_disabled():
             },
             "cache": {
                 "size": "10M",
+                "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
                 "eviction_policy": {
                     "policy": "lru",
                     "purge_factor": 50,  # Experimental feature
@@ -1871,6 +1931,7 @@ def test_experimental_features_purge_factor_enabled():
             },
             "cache": {
                 "size": "10M",
+                "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
                 "eviction_policy": {
                     "policy": "lru",
                     "purge_factor": 50,
@@ -1901,6 +1962,7 @@ def test_experimental_features_both_enabled():
             },
             "cache": {
                 "size": "10M",
+                "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
                 "eviction_policy": {
                     "policy": "mru",
                     "purge_factor": 50,

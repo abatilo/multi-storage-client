@@ -565,7 +565,12 @@ def create_new_cache_config(profile_config, tmpdir):
     profile_config["caching_enabled"] = True
     return {
         "profiles": {"s3-local": profile_config},
-        "cache": {"size": "10M", "use_etag": False, "eviction_policy": {"policy": "random", "refresh_interval": 300}},
+        "cache": {
+            "size": "10M",
+            "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
+            "use_etag": False,
+            "eviction_policy": {"policy": "random", "refresh_interval": 300},
+        },
     }
 
 

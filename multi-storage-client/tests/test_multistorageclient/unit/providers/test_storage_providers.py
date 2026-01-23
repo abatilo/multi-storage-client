@@ -69,6 +69,7 @@ def test_storage_providers(temp_data_store_type: type[tempdatastore.TemporaryDat
         if with_cache:
             config_dict["cache"] = {
                 "size": "10M",
+                "cache_line_size": "1M",  # Set explicitly to avoid default 64M exceeding cache size
                 "use_etag": True,
                 "location": tempfile.mkdtemp(),
                 "eviction_policy": {

@@ -946,12 +946,32 @@ class StorageClientConfigLoader:
                 "Please use 'size' with a unit suffix (M, G, T) instead of size_mb.\n"
                 "Example configuration:\n"
                 "cache:\n"
-                "  size: 500G               # Optional: If not specified, default cache size (10GB) will be used\n"
-                "  use_etag: true           # Optional: If not specified, default cache use_etag (true) will be used\n"
-                "  location: /tmp/msc_cache # Optional: If not specified, default cache location (system temporary directory + '/msc_cache') will be used\n"
-                "  eviction_policy:         # Optional: The eviction policy to use\n"
-                "    policy: fifo           # Optional: The eviction policy to use, default is 'fifo'\n"
-                "    refresh_interval: 300  # Optional: If not specified, default cache refresh interval (300 seconds) will be used\n"
+                "  size: 500G                    # Optional: Maximum cache size (default: 10G)\n"
+                "  cache_line_size: 64M          # Optional: Chunk size for partial file caching (default: 64M)\n"
+                "  check_source_version: true    # Optional: Use ETag for cache validation (default: true)\n"
+                "  location: /tmp/msc_cache      # Optional: Cache directory path (default: system tempdir + '/msc_cache')\n"
+                "  eviction_policy:               # Optional: Cache eviction policy\n"
+                "    policy: fifo                 # Optional: Policy type: lru, mru, fifo, random, no_eviction (default: fifo)\n"
+                "    refresh_interval: 300        # Optional: Cache refresh interval in seconds (default: 300)\n"
+            )
+
+        # Validate that cache_line_size doesn't exceed cache size
+        cache_size_str = cache_dict.get("size", DEFAULT_CACHE_SIZE)
+        cache_line_size_str = cache_dict.get("cache_line_size", DEFAULT_CACHE_LINE_SIZE)
+
+        # Use CacheConfig to convert sizes to bytes for comparison
+        temp_cache_config = CacheConfig(
+            size=cache_size_str,
+            cache_line_size=cache_line_size_str,
+        )
+        cache_size_bytes = temp_cache_config.size_bytes()
+        cache_line_size_bytes = temp_cache_config.cache_line_size_bytes()
+
+        if cache_line_size_bytes > cache_size_bytes:
+            raise ValueError(
+                f"cache_line_size ({cache_line_size_str}) exceeds cache size ({cache_size_str}). "
+                f"cache_line_size must be less than or equal to cache size. "
+                f"Consider increasing cache size or decreasing cache_line_size."
             )
 
     def _validate_replicas(self, replicas: list[Replica]) -> None:
