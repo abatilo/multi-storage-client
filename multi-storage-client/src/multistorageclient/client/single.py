@@ -173,7 +173,7 @@ class SingleStorageClient(AbstractStorageClient):
         """
         :return: ``True`` if the storage provider is using the Rust client, ``False`` otherwise.
         """
-        return hasattr(self._storage_provider, "_rust_client")
+        return getattr(self._storage_provider, "_rust_client", None) is not None
 
     def _read_from_replica_or_primary(self, path: str) -> bytes:
         """

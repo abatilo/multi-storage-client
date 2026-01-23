@@ -151,10 +151,13 @@ class SyncManager:
                 error_queue = queue.Queue()
                 shutdown_event = threading.Event()
             else:
-                file_queue = multiprocessing.Queue()
-                result_queue = multiprocessing.Queue()
-                error_queue = multiprocessing.Queue()
-                shutdown_event = multiprocessing.Event()
+                # Use spawn context to ensure fork-safety with boto3/cloud SDK clients.
+                # Fork can corrupt shared connection pools and transfer manager state.
+                ctx = multiprocessing.get_context("spawn")
+                file_queue = ctx.Queue()
+                result_queue = ctx.Queue()
+                error_queue = ctx.Queue()
+                shutdown_event = ctx.Event()
         else:
             if not HAVE_RAY:
                 raise RuntimeError(
@@ -224,10 +227,10 @@ class SyncManager:
                     shutdown_event,
                 )
             else:
-                # Create individual processes so they can share the multiprocessing.Queue
+                # Create individual processes using spawn context for fork-safety
                 processes = []
                 for _ in range(num_worker_processes):
-                    process = multiprocessing.Process(
+                    process = ctx.Process(
                         target=_sync_worker_process,
                         args=(
                             self.source_client,

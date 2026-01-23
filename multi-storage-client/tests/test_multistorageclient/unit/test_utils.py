@@ -420,8 +420,11 @@ def test_ensure_adequate_file_descriptors():
     assert isinstance(fd_limit, int)
     # Should return at least the original soft limit (or target if achievable)
     assert fd_limit >= original_soft
-    # Should achieve target or hard limit, whichever is lower
-    assert fd_limit == min(4096, original_hard)
+    # Function returns original_soft if already >= target, else min(target, hard)
+    if original_soft >= 4096:
+        assert fd_limit == original_soft
+    else:
+        assert fd_limit == min(4096, original_hard)
 
 
 @patch("multistorageclient.utils.get_available_cpu_count")

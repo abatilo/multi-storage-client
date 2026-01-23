@@ -203,3 +203,21 @@ def test_composite_client_is_rust_client_enabled(multi_backend_config):
     # should returns False if any child client is not Rust-enabled
     child_clients[1]._is_rust_client_enabled = MagicMock(return_value=False)
     assert composite._is_rust_client_enabled() is False
+
+
+def test_single_client_is_rust_client_enabled(single_backend_config):
+    """Test SingleStorageClient._is_rust_client_enabled() returns correct value based on _rust_client attribute."""
+    client = StorageClient(single_backend_config)
+    single = client._delegate
+    assert isinstance(single, SingleStorageClient)
+
+    # File provider doesn't have _rust_client attribute - should return False
+    assert single._is_rust_client_enabled() is False
+
+    # Mock provider with _rust_client = None (disabled) - should return False
+    setattr(single._storage_provider, "_rust_client", None)
+    assert single._is_rust_client_enabled() is False
+
+    # Mock provider with _rust_client set to a value - should return True
+    setattr(single._storage_provider, "_rust_client", MagicMock())
+    assert single._is_rust_client_enabled() is True

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import logging
 import threading
 from typing import TYPE_CHECKING
@@ -62,10 +63,21 @@ class ResultMonitorThread(threading.Thread):
                     break
 
                 if op == OperationType.ADD:
+                    # Update metadata provider in the main process.
+                    # When using multiprocessing, workers have their own pickled copies of target_client,
+                    # so their add_file() calls update their own copy's _pending_adds (lost on process exit).
+                    # We must explicitly update the main process's metadata provider here.
+                    # In single-process mode this is redundant but harmless (dict overwrite is idempotent).
+                    if self.target_client._metadata_provider:
+                        with self.target_client._metadata_provider_lock or contextlib.nullcontext():
+                            self.target_client._metadata_provider.add_file(target_file_path, physical_metadata)
                     self.total_files_added += 1
                     self.total_bytes_added += physical_metadata.content_length
                     self.progress.update_progress()
                 elif op == OperationType.DELETE:
+                    if self.target_client._metadata_provider:
+                        with self.target_client._metadata_provider_lock or contextlib.nullcontext():
+                            self.target_client._metadata_provider.remove_file(target_file_path)
                     self.total_files_deleted += 1
                     self.total_bytes_deleted += physical_metadata.content_length
                     self.progress.update_progress()
