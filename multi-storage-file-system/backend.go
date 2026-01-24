@@ -43,8 +43,7 @@ type backendContextIf interface {
 
 	// `listDirectory` is called to fetch a `page` of the `directory` at the specified path.
 	// An empty continuationToken or empty list of directory elements (`subdirectories` and `files`)
-	// indicates the `directory` has been completely enumerated. An error will result if either the
-	// specified path is not a `directory` or non-existent.
+	// indicates the `directory` has been completely enumerated.
 	listDirectory(listDirectoryInput *listDirectoryInputStruct) (listDirectoryOutput *listDirectoryOutputStruct, err error)
 
 	// `readFile` is called to read a range of a `file` at the specified path.

@@ -111,11 +111,12 @@ func (backend *backendStruct) setupS3Context() (err error) {
 		backendPathParsed.Path += "/" + backend.bucketContainerName
 	}
 
-	if backend.prefix != "" {
+	if backend.prefix == "" {
+		backend.backendPath = backendPathParsed.String() + "/"
+	} else {
 		backendPathParsed.Path += "/" + backend.prefix
+		backend.backendPath = backendPathParsed.String()
 	}
-
-	backend.backendPath = backendPathParsed.String() + "/"
 
 	backend.context = &s3ContextStruct{
 		backend: backend,
@@ -256,8 +257,7 @@ func (s3Context *s3ContextStruct) deleteFile(deleteFileInput *deleteFileInputStr
 
 // `listDirectory` is called to fetch a `page` of the `directory` at the specified path.
 // An empty continuationToken or empty list of directory elements (`subdirectories` and `files`)
-// indicates the `directory` has been completely enumerated. An error is returned if either the
-// specified path is not a `directory` or non-existent.
+// indicates the `directory` has been completely enumerated.
 func (s3Context *s3ContextStruct) listDirectory(listDirectoryInput *listDirectoryInputStruct) (listDirectoryOutput *listDirectoryOutputStruct, err error) {
 	var (
 		backend               = s3Context.backend
@@ -281,36 +281,39 @@ func (s3Context *s3ContextStruct) listDirectory(listDirectoryInput *listDirector
 	}
 
 	s3ListObjectsV2Output, err = s3Context.s3Client.ListObjectsV2(context.Background(), s3ListObjectsV2Input)
-	if err == nil {
-		listDirectoryOutput = &listDirectoryOutputStruct{
-			subdirectory: make([]string, 0, len(s3ListObjectsV2Output.CommonPrefixes)),
-			file:         make([]listDirectoryOutputFileStruct, 0, len(s3ListObjectsV2Output.Contents)),
-		}
+	if err != nil {
+		err = fmt.Errorf("[S3] listDirectory failed: %v", err)
+		return
+	}
 
-		if s3ListObjectsV2Output.NextContinuationToken == nil {
-			listDirectoryOutput.nextContinuationToken = ""
-		} else {
-			listDirectoryOutput.nextContinuationToken = *s3ListObjectsV2Output.NextContinuationToken
-		}
+	listDirectoryOutput = &listDirectoryOutputStruct{
+		subdirectory: make([]string, 0, len(s3ListObjectsV2Output.CommonPrefixes)),
+		file:         make([]listDirectoryOutputFileStruct, 0, len(s3ListObjectsV2Output.Contents)),
+	}
 
-		// AWS S3 neglects to set s3ListObjectsV2Output.IsTruncated properly, so we
-		// instead compute our listDirectoryOutput.isTruncated value on whether or now
-		// listDirectoryOutput.nextContinuationToken is above set to a non-empty string
+	if s3ListObjectsV2Output.NextContinuationToken == nil {
+		listDirectoryOutput.nextContinuationToken = ""
+	} else {
+		listDirectoryOutput.nextContinuationToken = *s3ListObjectsV2Output.NextContinuationToken
+	}
 
-		listDirectoryOutput.isTruncated = (listDirectoryOutput.nextContinuationToken != "")
+	// AWS S3 neglects to set s3ListObjectsV2Output.IsTruncated properly, so we
+	// instead compute our listDirectoryOutput.isTruncated value on whether or now
+	// listDirectoryOutput.nextContinuationToken is above set to a non-empty string
 
-		for _, s3CommonPrefix = range s3ListObjectsV2Output.CommonPrefixes {
-			listDirectoryOutput.subdirectory = append(listDirectoryOutput.subdirectory, strings.TrimSuffix(strings.TrimPrefix(*s3CommonPrefix.Prefix, fullDirPath), "/"))
-		}
+	listDirectoryOutput.isTruncated = (listDirectoryOutput.nextContinuationToken != "")
 
-		for _, s3Object = range s3ListObjectsV2Output.Contents {
-			listDirectoryOutput.file = append(listDirectoryOutput.file, listDirectoryOutputFileStruct{
-				basename: strings.TrimPrefix(*s3Object.Key, fullDirPath),
-				eTag:     strings.TrimLeft(strings.TrimRight(*s3Object.ETag, "\""), "\""),
-				mTime:    *s3Object.LastModified,
-				size:     uint64(*s3Object.Size),
-			})
-		}
+	for _, s3CommonPrefix = range s3ListObjectsV2Output.CommonPrefixes {
+		listDirectoryOutput.subdirectory = append(listDirectoryOutput.subdirectory, strings.TrimSuffix(strings.TrimPrefix(*s3CommonPrefix.Prefix, fullDirPath), "/"))
+	}
+
+	for _, s3Object = range s3ListObjectsV2Output.Contents {
+		listDirectoryOutput.file = append(listDirectoryOutput.file, listDirectoryOutputFileStruct{
+			basename: strings.TrimPrefix(*s3Object.Key, fullDirPath),
+			eTag:     strings.TrimLeft(strings.TrimRight(*s3Object.ETag, "\""), "\""),
+			mTime:    *s3Object.LastModified,
+			size:     uint64(*s3Object.Size),
+		})
 	}
 
 	return

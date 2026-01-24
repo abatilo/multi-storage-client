@@ -137,7 +137,7 @@ func (*globalsStruct) DoLookup(inHeader *fission.InHeader, lookupIn *fission.Loo
 		if errno == 0 {
 			globals.fissionMetrics.LookupSuccesses.Inc()
 			globals.fissionMetrics.LookupSuccessLatencies.Observe(latency)
-			if parentInode.backend != nil {
+			if (parentInode != nil) && (parentInode.backend != nil) {
 				parentInode.backend.fissionMetrics.LookupSuccesses.Inc()
 				parentInode.backend.fissionMetrics.LookupSuccessLatencies.Observe(latency)
 			}
@@ -260,7 +260,7 @@ func (*globalsStruct) DoGetAttr(inHeader *fission.InHeader, getAttrIn *fission.G
 		if errno == 0 {
 			globals.fissionMetrics.GetAttrSuccesses.Inc()
 			globals.fissionMetrics.GetAttrSuccessLatencies.Observe(latency)
-			if thisInode.backend != nil {
+			if (thisInode != nil) && (thisInode.backend != nil) {
 				thisInode.backend.fissionMetrics.GetAttrSuccesses.Inc()
 				thisInode.backend.fissionMetrics.GetAttrSuccessLatencies.Observe(latency)
 			}
@@ -364,8 +364,114 @@ func (*globalsStruct) DoMkNod(inHeader *fission.InHeader, mkNodIn *fission.MkNod
 
 // `DoMkDir` implements the package fission callback to create a directory inode.
 func (*globalsStruct) DoMkDir(inHeader *fission.InHeader, mkDirIn *fission.MkDirIn) (mkDirOut *fission.MkDirOut, errno syscall.Errno) {
-	fmt.Println("[TODO] fission.go::DoMkDir()")
-	errno = syscall.ENOSYS
+	var (
+		basename           = string(mkDirIn.Name)
+		childInode         *inodeStruct
+		entryAttrValidNSec uint32
+		entryAttrValidSec  uint64
+		latency            float64
+		mTimeNSec          uint32
+		mTimeSec           uint64
+		ok                 bool
+		parentInode        *inodeStruct
+		startTime          = time.Now()
+	)
+
+	defer func() {
+		latency = time.Since(startTime).Seconds()
+		globals.Lock()
+		if errno == 0 {
+			globals.fissionMetrics.MkDirSuccesses.Inc()
+			globals.fissionMetrics.MkDirSuccessLatencies.Observe(latency)
+			if (parentInode != nil) && (parentInode.backend != nil) {
+				parentInode.backend.fissionMetrics.MkDirSuccesses.Inc()
+				parentInode.backend.fissionMetrics.MkDirSuccessLatencies.Observe(latency)
+			}
+		} else {
+			globals.fissionMetrics.MkDirFailures.Inc()
+			globals.fissionMetrics.MkDirFailureLatencies.Observe(latency)
+			if (parentInode != nil) && (parentInode.backend != nil) {
+				parentInode.backend.fissionMetrics.MkDirFailures.Inc()
+				parentInode.backend.fissionMetrics.MkDirFailureLatencies.Observe(latency)
+			}
+		}
+		globals.Unlock()
+	}()
+
+	globals.Lock()
+
+	parentInode, ok = globals.inodeMap[inHeader.NodeID]
+	if !ok {
+		// We no longer know how to map inHeader.NodeID (an inodeNumber) to the parentInode
+		parentInode = nil
+		globals.Unlock()
+		errno = syscall.ENOENT
+		return
+	}
+	if parentInode.inodeType == FileObject {
+		// The parentInode must be a directory of some sort... not a FileObject
+		globals.Unlock()
+		errno = syscall.ENOTDIR
+		return
+	}
+	if parentInode.inodeType == FUSERootDir {
+		// Never allowed in FUSERootDir
+		globals.Unlock()
+		errno = syscall.EPERM
+		return
+	}
+	if parentInode.backend.readOnly {
+		// Never allowed in a readOnly backend
+		globals.Unlock()
+		errno = syscall.EPERM
+		return
+	}
+
+	_, ok = parentInode.findChildInode(basename)
+	if ok {
+		// We just return EEXIST if we find a phys or virt child dir entry (whether or not it is a dir or a file)
+		globals.Unlock()
+		errno = syscall.EEXIST
+		return
+	}
+
+	// From here, we know we will succeed
+
+	childInode = parentInode.createPseudoDirInode(true, basename)
+
+	entryAttrValidSec, entryAttrValidNSec = timeDurationToAttrDuration(globals.config.entryAttrTTL)
+	mTimeSec, mTimeNSec = timeTimeToAttrTime(childInode.mTime)
+
+	mkDirOut = &fission.MkDirOut{
+		EntryOut: fission.EntryOut{
+			NodeID:         childInode.inodeNumber,
+			Generation:     0,
+			EntryValidSec:  entryAttrValidSec,
+			AttrValidSec:   entryAttrValidSec,
+			EntryValidNSec: entryAttrValidNSec,
+			AttrValidNSec:  entryAttrValidNSec,
+			Attr: fission.Attr{
+				Ino:       childInode.inodeNumber,
+				Size:      childInode.sizeInMemory,
+				ATimeSec:  mTimeSec,
+				MTimeSec:  mTimeSec,
+				CTimeSec:  mTimeSec,
+				ATimeNSec: mTimeNSec,
+				MTimeNSec: mTimeNSec,
+				CTimeNSec: mTimeNSec,
+				Mode:      childInode.mode,
+				UID:       uint32(childInode.backend.uid),
+				GID:       uint32(childInode.backend.gid),
+				RDev:      0,
+				Padding:   0,
+			},
+		},
+	}
+	fixAttrSizes(&mkDirOut.Attr)
+
+	globals.Unlock()
+
+	errno = 0
 	return
 }
 
@@ -379,8 +485,123 @@ func (*globalsStruct) DoUnlink(inHeader *fission.InHeader, unlinkIn *fission.Unl
 
 // `DoRmDir` implements the package fission callback to remove a directory inode.
 func (*globalsStruct) DoRmDir(inHeader *fission.InHeader, rmDirIn *fission.RmDirIn) (errno syscall.Errno) {
-	fmt.Println("[TODO] fission.go::DoRmDir()")
-	errno = syscall.ENOSYS
+	var (
+		basename    = string(rmDirIn.Name)
+		childInode  *inodeStruct
+		latency     float64
+		ok          bool
+		parentInode *inodeStruct
+		startTime   = time.Now()
+	)
+
+	defer func() {
+		latency = time.Since(startTime).Seconds()
+		globals.Lock()
+		if errno == 0 {
+			globals.fissionMetrics.RmDirSuccesses.Inc()
+			globals.fissionMetrics.RmDirSuccessLatencies.Observe(latency)
+			if (parentInode != nil) && (parentInode.backend != nil) {
+				parentInode.backend.fissionMetrics.RmDirSuccesses.Inc()
+				parentInode.backend.fissionMetrics.RmDirSuccessLatencies.Observe(latency)
+			}
+		} else {
+			globals.fissionMetrics.RmDirFailures.Inc()
+			globals.fissionMetrics.RmDirFailureLatencies.Observe(latency)
+			if (parentInode != nil) && (parentInode.backend != nil) {
+				parentInode.backend.fissionMetrics.RmDirFailures.Inc()
+				parentInode.backend.fissionMetrics.RmDirFailureLatencies.Observe(latency)
+			}
+		}
+		globals.Unlock()
+	}()
+
+	globals.Lock()
+
+	parentInode, ok = globals.inodeMap[inHeader.NodeID]
+	if !ok {
+		// We no longer know how to map inHeader.NodeID (an inodeNumber) to the parentInode
+		parentInode = nil
+		globals.Unlock()
+		errno = syscall.ENOENT
+		return
+	}
+	if parentInode.inodeType == FileObject {
+		// The parentInode must be a directory of some sort... not a FileObject
+		globals.Unlock()
+		errno = syscall.ENOTDIR
+		return
+	}
+	if parentInode.inodeType == FUSERootDir {
+		// Never allowed in FUSERootDir
+		globals.Unlock()
+		errno = syscall.EPERM
+		return
+	}
+	if parentInode.backend.readOnly {
+		// Never allowed in a readOnly backend
+		globals.Unlock()
+		errno = syscall.EPERM
+		return
+	}
+
+	childInode, ok = parentInode.findChildInode(basename)
+	if !ok {
+		// We didn't find the child directory, so just return ENOENT
+		globals.Unlock()
+		errno = syscall.ENOENT
+		return
+	}
+	if childInode.inodeType != PseudoDir {
+		// This child exists but is not a directory, so we return ENOTDIR
+		globals.Unlock()
+		errno = syscall.ENOTDIR
+		return
+	}
+	if len(childInode.fhMap) > 0 {
+		// We return EBUSY if the directory is currently "open"
+		globals.Unlock()
+		errno = syscall.EBUSY
+		return
+	}
+	if !childInode.isVirt || (childInode.physChildInodeMap.Len() > 0) || (childInode.virtChildInodeMap.Len() > 2) {
+		// All "phys" directories have at least one child (subdirectory or file) but non-empty "virt" both trigger ENOTEMPTY
+		globals.Unlock()
+		errno = syscall.ENOTEMPTY
+		return
+	}
+
+	// From here, we know we will succeed
+
+	if childInode.listElement != nil {
+		globals.inodeEvictionLRU.Remove(childInode.xTime, childInode.listElement)
+		childInode.xTime = time.Time{}
+		childInode.listElement = nil
+	}
+
+	_ = childInode.virtChildInodeMap.DeleteByKey(DotDirEntryBasename)
+	_ = childInode.virtChildInodeMap.DeleteByKey(DotDotDirEntryBasename)
+
+	if childInode.isVirt {
+		ok = parentInode.virtChildInodeMap.DeleteByKey(basename)
+		if !ok {
+			dumpStack()
+			globals.logger.Fatalf("[FATAL] parentInode.virtChildInodeMap.DeleteByKey(basename) returned !ok")
+		}
+	} else {
+		ok = parentInode.physChildInodeMap.DeleteByKey(basename)
+		if !ok {
+			dumpStack()
+			globals.logger.Fatalf("[FATAL] parentInode.physChildInodeMap.DeleteByKey(basename) returned !ok")
+		}
+	}
+
+	delete(globals.inodeMap, childInode.inodeNumber)
+
+	parentInode.touch(nil)
+
+	globals.Unlock()
+
+	errno = 0
 	return
 }
 
@@ -416,7 +637,7 @@ func (*globalsStruct) DoOpen(inHeader *fission.InHeader, openIn *fission.OpenIn)
 		if errno == 0 {
 			globals.fissionMetrics.OpenSuccesses.Inc()
 			globals.fissionMetrics.OpenSuccessLatencies.Observe(latency)
-			if inode.backend != nil {
+			if (inode != nil) && (inode.backend != nil) {
 				inode.backend.fissionMetrics.OpenSuccesses.Inc()
 				inode.backend.fissionMetrics.OpenSuccessLatencies.Observe(latency)
 			}
@@ -526,7 +747,7 @@ func (*globalsStruct) DoRead(inHeader *fission.InHeader, readIn *fission.ReadIn)
 			globals.fissionMetrics.ReadSuccesses.Inc()
 			globals.fissionMetrics.ReadSuccessLatencies.Observe(latency)
 			globals.fissionMetrics.ReadSuccessSizes.Observe(float64(len(readOut.Data)))
-			if inode.backend != nil {
+			if (inode != nil) && (inode.backend != nil) {
 				inode.backend.fissionMetrics.ReadSuccesses.Inc()
 				inode.backend.fissionMetrics.ReadSuccessLatencies.Observe(latency)
 				inode.backend.fissionMetrics.ReadSuccessSizes.Observe(float64(len(readOut.Data)))
@@ -757,7 +978,7 @@ func (*globalsStruct) DoRelease(inHeader *fission.InHeader, releaseIn *fission.R
 		if errno == 0 {
 			globals.fissionMetrics.ReleaseSuccesses.Inc()
 			globals.fissionMetrics.ReleaseSuccessLatencies.Observe(latency)
-			if inode.backend != nil {
+			if (inode != nil) && (inode.backend != nil) {
 				inode.backend.fissionMetrics.ReleaseSuccesses.Inc()
 				inode.backend.fissionMetrics.ReleaseSuccessLatencies.Observe(latency)
 			}
@@ -887,7 +1108,7 @@ func (*globalsStruct) DoOpenDir(inHeader *fission.InHeader, openDirIn *fission.O
 		if errno == 0 {
 			globals.fissionMetrics.OpenDirSuccesses.Inc()
 			globals.fissionMetrics.OpenDirSuccessLatencies.Observe(latency)
-			if inode.backend != nil {
+			if (inode != nil) && (inode.backend != nil) {
 				inode.backend.fissionMetrics.OpenDirSuccesses.Inc()
 				inode.backend.fissionMetrics.OpenDirSuccessLatencies.Observe(latency)
 			}
@@ -1020,7 +1241,7 @@ func (*globalsStruct) DoReadDir(inHeader *fission.InHeader, readDirIn *fission.R
 		if errno == 0 {
 			globals.fissionMetrics.ReadDirSuccesses.Inc()
 			globals.fissionMetrics.ReadDirSuccessLatencies.Observe(latency)
-			if parentInode.backend != nil {
+			if (parentInode != nil) && (parentInode.backend != nil) {
 				parentInode.backend.fissionMetrics.ReadDirSuccesses.Inc()
 				parentInode.backend.fissionMetrics.ReadDirSuccessLatencies.Observe(latency)
 			}
@@ -1269,7 +1490,7 @@ func (*globalsStruct) DoReleaseDir(inHeader *fission.InHeader, releaseDirIn *fis
 		if errno == 0 {
 			globals.fissionMetrics.ReleaseDirSuccesses.Inc()
 			globals.fissionMetrics.ReleaseDirSuccessLatencies.Observe(latency)
-			if inode.backend != nil {
+			if (inode != nil) && (inode.backend != nil) {
 				inode.backend.fissionMetrics.ReleaseDirSuccesses.Inc()
 				inode.backend.fissionMetrics.ReleaseDirSuccessLatencies.Observe(latency)
 			}
@@ -1511,7 +1732,7 @@ func (*globalsStruct) DoReadDirPlus(inHeader *fission.InHeader, readDirPlusIn *f
 		if errno == 0 {
 			globals.fissionMetrics.ReadDirPlusSuccesses.Inc()
 			globals.fissionMetrics.ReadDirPlusSuccessLatencies.Observe(latency)
-			if parentInode.backend != nil {
+			if (parentInode != nil) && (parentInode.backend != nil) {
 				parentInode.backend.fissionMetrics.ReadDirPlusSuccesses.Inc()
 				parentInode.backend.fissionMetrics.ReadDirPlusSuccessLatencies.Observe(latency)
 			}
@@ -1783,7 +2004,7 @@ func (*globalsStruct) DoStatX(inHeader *fission.InHeader, statXIn *fission.StatX
 		if errno == 0 {
 			globals.fissionMetrics.StatXSuccesses.Inc()
 			globals.fissionMetrics.StatXSuccessLatencies.Observe(latency)
-			if thisInode.backend != nil {
+			if (thisInode != nil) && (thisInode.backend != nil) {
 				thisInode.backend.fissionMetrics.StatXSuccesses.Inc()
 				thisInode.backend.fissionMetrics.StatXSuccessLatencies.Observe(latency)
 			}

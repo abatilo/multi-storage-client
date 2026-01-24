@@ -94,6 +94,7 @@ func (*globalsStruct) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "<h1>Endpoints</h1>\n<ul>\n")
 			fmt.Fprintf(w, "  <li><a href=\"/backends\">/backends</a></li>\n")
 			fmt.Fprintf(w, "  <li><a href=\"/drain\">/drain</a></li>\n")
+			fmt.Fprintf(w, "  <li><a href=\"/dump\">/dump</a></li>\n")
 			fmt.Fprintf(w, "  <li><a href=\"/metrics\">/metrics</a></li>\n")
 			globals.Lock()
 			for _, backend = range globals.config.backends {
@@ -106,6 +107,7 @@ func (*globalsStruct) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "Endpoints:\n")
 			fmt.Fprintf(w, "  /backends\n")
 			fmt.Fprintf(w, "  /drain\n")
+			fmt.Fprintf(w, "  /dump\n")
 			fmt.Fprintf(w, "  /metrics\n")
 			globals.Lock()
 			for _, backend = range globals.config.backends {
@@ -133,6 +135,10 @@ func (*globalsStruct) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "%v\n", numDrained)
+
+	case r.RequestURI == "/dump":
+		w.WriteHeader(http.StatusOK)
+		dumpFS(w)
 
 	case r.RequestURI == "/metrics":
 		registry = prometheus.NewRegistry()
@@ -178,6 +184,7 @@ func (*globalsStruct) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "unknown endpoint - must be one of:\n")
 		fmt.Fprintf(w, "  /backends\n")
 		fmt.Fprintf(w, "  /drain\n")
+		fmt.Fprintf(w, "  /dump\n")
 		fmt.Fprintf(w, "  /metrics\n")
 		globals.Lock()
 		for _, backend = range globals.config.backends {
@@ -200,6 +207,22 @@ func registerFissionMetrics(registry *prometheus.Registry, m *fissionMetricsStru
 	registry.MustRegister(m.GetAttrFailures)
 	registry.MustRegister(m.GetAttrSuccessLatencies)
 	registry.MustRegister(m.GetAttrFailureLatencies)
+	registry.MustRegister(m.MkNodSuccesses)
+	registry.MustRegister(m.MkNodFailures)
+	registry.MustRegister(m.MkNodSuccessLatencies)
+	registry.MustRegister(m.MkNodFailureLatencies)
+	registry.MustRegister(m.MkDirSuccesses)
+	registry.MustRegister(m.MkDirFailures)
+	registry.MustRegister(m.MkDirSuccessLatencies)
+	registry.MustRegister(m.MkDirFailureLatencies)
+	registry.MustRegister(m.UnlinkSuccesses)
+	registry.MustRegister(m.UnlinkFailures)
+	registry.MustRegister(m.UnlinkSuccessLatencies)
+	registry.MustRegister(m.UnlinkFailureLatencies)
+	registry.MustRegister(m.RmDirSuccesses)
+	registry.MustRegister(m.RmDirFailures)
+	registry.MustRegister(m.RmDirSuccessLatencies)
+	registry.MustRegister(m.RmDirFailureLatencies)
 	registry.MustRegister(m.OpenSuccesses)
 	registry.MustRegister(m.OpenFailures)
 	registry.MustRegister(m.OpenSuccessLatencies)
@@ -231,6 +254,10 @@ func registerFissionMetrics(registry *prometheus.Registry, m *fissionMetricsStru
 	registry.MustRegister(m.ReleaseDirFailures)
 	registry.MustRegister(m.ReleaseDirSuccessLatencies)
 	registry.MustRegister(m.ReleaseDirFailureLatencies)
+	registry.MustRegister(m.CreateSuccesses)
+	registry.MustRegister(m.CreateFailures)
+	registry.MustRegister(m.CreateSuccessLatencies)
+	registry.MustRegister(m.CreateFailureLatencies)
 	registry.MustRegister(m.ReadDirPlusSuccesses)
 	registry.MustRegister(m.ReadDirPlusFailures)
 	registry.MustRegister(m.ReadDirPlusSuccessLatencies)

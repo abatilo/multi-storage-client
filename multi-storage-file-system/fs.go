@@ -3,6 +3,8 @@ package main
 import (
 	"container/list"
 	"context"
+	"fmt"
+	"io"
 	"syscall"
 	"time"
 )
@@ -364,6 +366,7 @@ func (parentInode *inodeStruct) createPseudoDirInode(isVirt bool, basename strin
 
 	globals.inodeMap[pseudoDirInode.inodeNumber] = pseudoDirInode
 
+	parentInode.touch(nil)
 	pseudoDirInode.touch(nil)
 
 	return
@@ -421,6 +424,7 @@ func (parentInode *inodeStruct) createFileObjectInode(isVirt bool, basename stri
 
 	globals.inodeMap[fileObjectInode.inodeNumber] = fileObjectInode
 
+	parentInode.touch(nil)
 	fileObjectInode.touch(nil)
 
 	return
@@ -730,7 +734,7 @@ func (parentInode *inodeStruct) findChildInode(basename string) (childInode *ino
 
 	_, err = statDirectoryWrapper(parentInode.backend.context, statDirectoryInput)
 	if err == nil {
-		// We found an existing object prefix in the backend, ao let's create a PseudoDir inode for it
+		// We found an existing object prefix in the backend, so let's create a PseudoDir inode for it
 
 		childInode = parentInode.createPseudoDirInode(false, basename)
 
@@ -849,7 +853,7 @@ const (
 )
 
 // `dumpFS` logs the entire file system. It must be called without holding globals.Lock().
-func dumpFS() {
+func dumpFS(w io.Writer) {
 	var (
 		ok           bool
 		rootDirInode *inodeStruct
@@ -867,13 +871,13 @@ func dumpFS() {
 		globals.logger.Fatalf("[FATAL] rootDirInode.inodeType(%v) should have been FUSERootDir(%v)", rootDirInode.inodeType, FUSERootDir)
 	}
 
-	rootDirInode.dumpFS("", FUSERootDirInodeNumber, "")
+	rootDirInode.dumpFS(w, "", FUSERootDirInodeNumber, "")
 
 	globals.Unlock()
 }
 
 // `dumpFS` called on a particular inode recursively dumps a file system element.
-func (thisInode *inodeStruct) dumpFS(indent string, expectedInodeNumber uint64, expectedBasename string) {
+func (thisInode *inodeStruct) dumpFS(w io.Writer, indent string, expectedInodeNumber uint64, expectedBasename string) {
 	var (
 		childInode         *inodeStruct
 		childInodeBasename string
@@ -896,19 +900,19 @@ func (thisInode *inodeStruct) dumpFS(indent string, expectedInodeNumber uint64, 
 
 	switch thisInode.inodeType {
 	case FileObject:
-		thisInodeBasename = thisInode.basename
+		thisInodeBasename = "\"" + thisInode.basename + "\""
 	case FUSERootDir:
 		thisInodeBasename = "[FUSERootDir]"
 	case BackendRootDir:
-		thisInodeBasename = "[BackendRootDir] \"" + thisInode.basename + "\"(" + thisInode.objectPath + ")"
+		thisInodeBasename = "[BackendRootDir] \"" + thisInode.basename + "\" (" + thisInode.backend.backendPath + ")"
 	case PseudoDir:
-		thisInodeBasename = "[PseudoDir]      \"" + thisInode.basename + "\"(" + thisInode.objectPath + ")"
+		thisInodeBasename = "[PseudoDir]      \"" + thisInode.basename + "\" (" + thisInode.objectPath + ")"
 	default:
 		dumpStack()
 		globals.logger.Fatalf("[FATAL] dirInode.inodeType should == FUSERootDir(%v) or BackendRootDir(%v) or PseudoDir(%v), not FileObject(%v) nor what was found: %v", FUSERootDir, BackendRootDir, PseudoDir, FileObject, thisInode.inodeType)
 	}
 
-	globals.logger.Printf("[INDO] %s%5d \"%s\"", indent, thisInode.inodeNumber, thisInodeBasename)
+	fmt.Fprintf(w, "%s%5d %s\n", indent, thisInode.inodeNumber, thisInodeBasename)
 
 	if thisInode.inodeType == FileObject {
 		return
@@ -928,7 +932,7 @@ func (thisInode *inodeStruct) dumpFS(indent string, expectedInodeNumber uint64, 
 				dumpStack()
 				globals.logger.Fatalf("[FATAL] childInodeNumber(%v) != thisInode.inodeNumber(%v) [case virt]", childInodeNumber, thisInode.inodeNumber)
 			}
-			globals.logger.Printf("[INFO] %s%5d \"%s\"", nextIndent, childInodeNumber, childInodeBasename)
+			fmt.Fprintf(w, "%s%5d \"%s\"\n", nextIndent, childInodeNumber, childInodeBasename)
 			continue
 		}
 
@@ -937,7 +941,7 @@ func (thisInode *inodeStruct) dumpFS(indent string, expectedInodeNumber uint64, 
 				dumpStack()
 				globals.logger.Fatalf("[FATAL] childInodeNumber(%v) != thisInode.parentInodeNumber(%v) [case virt]", childInodeNumber, thisInode.parentInodeNumber)
 			}
-			globals.logger.Printf("[INFO] %s%5d \"%s\"", nextIndent, childInodeNumber, childInodeBasename)
+			fmt.Fprintf(w, "%s%5d \"%s\"\n", nextIndent, childInodeNumber, childInodeBasename)
 			continue
 		}
 
@@ -947,7 +951,7 @@ func (thisInode *inodeStruct) dumpFS(indent string, expectedInodeNumber uint64, 
 			globals.logger.Fatalf("[FATAL] globals.inodeMap[childInodeNumber] returned !ok [case virt]")
 		}
 
-		childInode.dumpFS(nextIndent, childInodeNumber, childInodeBasename)
+		childInode.dumpFS(w, nextIndent, childInodeNumber, childInodeBasename)
 	}
 
 	childInodeMapLen = thisInode.physChildInodeMap.Len()
@@ -964,7 +968,7 @@ func (thisInode *inodeStruct) dumpFS(indent string, expectedInodeNumber uint64, 
 				dumpStack()
 				globals.logger.Fatalf("[FATAL] childInodeNumber(%v) != thisInode.inodeNumber(%v) [case phys]", childInodeNumber, thisInode.inodeNumber)
 			}
-			globals.logger.Printf("[INFO] %s%5d \"%s\"", nextIndent, childInodeNumber, childInodeBasename)
+			fmt.Fprintf(w, "%s%5d \"%s\"\n", nextIndent, childInodeNumber, childInodeBasename)
 			continue
 		}
 
@@ -973,7 +977,7 @@ func (thisInode *inodeStruct) dumpFS(indent string, expectedInodeNumber uint64, 
 				dumpStack()
 				globals.logger.Fatalf("[FATAL] childInodeNumber(%v) != thisInode.parentInodeNumber(%v) [case phys]", childInodeNumber, thisInode.parentInodeNumber)
 			}
-			globals.logger.Printf("[INFO] %s%5d \"%s\"", nextIndent, childInodeNumber, childInodeBasename)
+			fmt.Fprintf(w, "%s%5d \"%s\"\n", nextIndent, childInodeNumber, childInodeBasename)
 			continue
 		}
 
@@ -983,6 +987,6 @@ func (thisInode *inodeStruct) dumpFS(indent string, expectedInodeNumber uint64, 
 			globals.logger.Fatalf("[FATAL] globals.inodeMap[childInodeNumber] returned !ok [case phys]")
 		}
 
-		childInode.dumpFS(nextIndent, childInodeNumber, childInodeBasename)
+		childInode.dumpFS(w, nextIndent, childInodeNumber, childInodeBasename)
 	}
 }

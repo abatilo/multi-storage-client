@@ -96,6 +96,13 @@ func (backend *backendStruct) setupAIStoreContext() (err error) {
 		bck:        bck,
 	}
 
+	// Record backendPath
+	if backend.prefix == "" {
+		backend.backendPath = backendAIStore.endpoint + "/"
+	} else {
+		backend.backendPath = backendAIStore.endpoint + "/" + backend.prefix
+	}
+
 	return
 }
 
@@ -140,8 +147,7 @@ func (aisContext *aistoreContextStruct) deleteFile(deleteFileInput *deleteFileIn
 
 // `listDirectory` is called to fetch a `page` of the `directory` at the specified path.
 // An empty continuationToken or empty list of directory elements (`subdirectories` and `files`)
-// indicates the `directory` has been completely enumerated. An error is returned if either the
-// specified path is not a `directory` or non-existent.
+// indicates the `directory` has been completely enumerated.
 func (aisContext *aistoreContextStruct) listDirectory(listDirectoryInput *listDirectoryInputStruct) (listDirectoryOutput *listDirectoryOutputStruct, err error) {
 	var (
 		backend     = aisContext.backend

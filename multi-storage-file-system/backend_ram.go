@@ -52,6 +52,8 @@ func (backend *backendStruct) setupRAMContext() (err error) {
 		curTotalObjectSpace: 0,
 	}
 
+	backend.backendPath = "ram://"
+
 	err = nil
 	return
 }
@@ -121,8 +123,7 @@ func (ramContext *ramContextStruct) deleteFile(deleteFileInput *deleteFileInputS
 
 // `listDirectory` is called to fetch a `page` of the `directory` at the specified path.
 // An empty continuationToken or empty list of directory elements (`subdirectories` and `files`)
-// indicates the `directory` has been completely enumerated. An error is returned if either the
-// specified path is not a `directory` or non-existent.
+// indicates the `directory` has been completely enumerated.
 func (ramContext *ramContextStruct) listDirectory(listDirectoryInput *listDirectoryInputStruct) (listDirectoryOutput *listDirectoryOutputStruct, err error) {
 	var (
 		continuationTokenAsUint64 uint64
@@ -144,8 +145,16 @@ func (ramContext *ramContextStruct) listDirectory(listDirectoryInput *listDirect
 
 	dirName, fileName, ramDir = ramContext.findFullPathElements(ramContext.canonicalDirPath(listDirectoryInput.dirPath))
 	if (len(dirName)+1 > len(ramDir)) || (fileName != "") {
-		// Either not all directories in the path exist... or this is actually a reference to a file... so we know directory does not exist
-		err = errors.New("directory not found")
+		// To align with other "real" object store backends, we just return an empty response
+
+		listDirectoryOutput = &listDirectoryOutputStruct{
+			subdirectory:          make([]string, 0),
+			file:                  make([]listDirectoryOutputFileStruct, 0),
+			nextContinuationToken: "",
+			isTruncated:           false,
+		}
+
+		err = nil
 		return
 	}
 

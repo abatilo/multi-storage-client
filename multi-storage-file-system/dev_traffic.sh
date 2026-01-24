@@ -12,7 +12,6 @@ Examples:
     $(basename "$0") -i 21                   # Read all files under /mnt/minio 21 times
     $(basename "$0") -t 42                   # Repeatedly read all files under /mnt/minio for 42 seconds
     $(basename "$0") /mnt/ram /mnt/minio     # Single pass across all files under both /mnt/ram and /mnt/minio
-}
 EOF
 }
 

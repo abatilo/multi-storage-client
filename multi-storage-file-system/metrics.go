@@ -17,6 +17,22 @@ type fissionMetricsStruct struct {
 	GetAttrFailures             prometheus.Counter
 	GetAttrSuccessLatencies     prometheus.Histogram
 	GetAttrFailureLatencies     prometheus.Histogram
+	MkNodSuccesses              prometheus.Counter
+	MkNodFailures               prometheus.Counter
+	MkNodSuccessLatencies       prometheus.Histogram
+	MkNodFailureLatencies       prometheus.Histogram
+	MkDirSuccesses              prometheus.Counter
+	MkDirFailures               prometheus.Counter
+	MkDirSuccessLatencies       prometheus.Histogram
+	MkDirFailureLatencies       prometheus.Histogram
+	UnlinkSuccesses             prometheus.Counter
+	UnlinkFailures              prometheus.Counter
+	UnlinkSuccessLatencies      prometheus.Histogram
+	UnlinkFailureLatencies      prometheus.Histogram
+	RmDirSuccesses              prometheus.Counter
+	RmDirFailures               prometheus.Counter
+	RmDirSuccessLatencies       prometheus.Histogram
+	RmDirFailureLatencies       prometheus.Histogram
 	OpenSuccesses               prometheus.Counter
 	OpenFailures                prometheus.Counter
 	OpenSuccessLatencies        prometheus.Histogram
@@ -48,6 +64,10 @@ type fissionMetricsStruct struct {
 	ReleaseDirFailures          prometheus.Counter
 	ReleaseDirSuccessLatencies  prometheus.Histogram
 	ReleaseDirFailureLatencies  prometheus.Histogram
+	CreateSuccesses             prometheus.Counter
+	CreateFailures              prometheus.Counter
+	CreateSuccessLatencies      prometheus.Histogram
+	CreateFailureLatencies      prometheus.Histogram
 	ReadDirPlusSuccesses        prometheus.Counter
 	ReadDirPlusFailures         prometheus.Counter
 	ReadDirPlusSuccessLatencies prometheus.Histogram
@@ -98,6 +118,82 @@ func newFissionMetrics() (fissionMetrics *fissionMetricsStruct) {
 		GetAttrFailureLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "fission_getattr_failure_latency_seconds",
 			Help:    "Latency of failed GetAttr operations",
+			Buckets: latencyBuckets,
+		}),
+
+		MkNodSuccesses: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_mknod_successes_total",
+			Help: "Total number of successful MkNod operations",
+		}),
+		MkNodFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_mknod_failures_total",
+			Help: "Total number of failed MkNod operations",
+		}),
+		MkNodSuccessLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_mknod_success_latency_seconds",
+			Help:    "Latency of successful MkNod operations",
+			Buckets: latencyBuckets,
+		}),
+		MkNodFailureLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_mknod_failure_latency_seconds",
+			Help:    "Latency of failed MkNod operations",
+			Buckets: latencyBuckets,
+		}),
+
+		MkDirSuccesses: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_mkdir_successes_total",
+			Help: "Total number of successful MkDir operations",
+		}),
+		MkDirFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_mkdir_failures_total",
+			Help: "Total number of failed MkDir operations",
+		}),
+		MkDirSuccessLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_mkdir_success_latency_seconds",
+			Help:    "Latency of successful MkDir operations",
+			Buckets: latencyBuckets,
+		}),
+		MkDirFailureLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_mkdir_failure_latency_seconds",
+			Help:    "Latency of failed MkDir operations",
+			Buckets: latencyBuckets,
+		}),
+
+		UnlinkSuccesses: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_unlink_successes_total",
+			Help: "Total number of successful Unlink operations",
+		}),
+		UnlinkFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_unlink_failures_total",
+			Help: "Total number of failed Unlink operations",
+		}),
+		UnlinkSuccessLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_unlink_success_latency_seconds",
+			Help:    "Latency of successful Unlink operations",
+			Buckets: latencyBuckets,
+		}),
+		UnlinkFailureLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_unlink_failure_latency_seconds",
+			Help:    "Latency of failed Unlink operations",
+			Buckets: latencyBuckets,
+		}),
+
+		RmDirSuccesses: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_rmdir_successes_total",
+			Help: "Total number of successful RmDir operations",
+		}),
+		RmDirFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_rmdir_failures_total",
+			Help: "Total number of failed RmDir operations",
+		}),
+		RmDirSuccessLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_rmdir_success_latency_seconds",
+			Help:    "Latency of successful RmDir operations",
+			Buckets: latencyBuckets,
+		}),
+		RmDirFailureLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_rmdir_failure_latency_seconds",
+			Help:    "Latency of failed RmDir operations",
 			Buckets: latencyBuckets,
 		}),
 
@@ -243,6 +339,25 @@ func newFissionMetrics() (fissionMetrics *fissionMetricsStruct) {
 		ReleaseDirFailureLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "fission_releasedir_failure_latency_seconds",
 			Help:    "Latency of failed ReleaseDir operations",
+			Buckets: latencyBuckets,
+		}),
+
+		CreateSuccesses: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_create_successes_total",
+			Help: "Total number of successful Create operations",
+		}),
+		CreateFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_create_failures_total",
+			Help: "Total number of failed Create operations",
+		}),
+		CreateSuccessLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_create_success_latency_seconds",
+			Help:    "Latency of successful Create operations",
+			Buckets: latencyBuckets,
+		}),
+		CreateFailureLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "fission_create_failure_latency_seconds",
+			Help:    "Latency of failed Create operations",
 			Buckets: latencyBuckets,
 		}),
 
