@@ -780,16 +780,16 @@ func prefetchDirectory(dirInodeNumber uint64) {
 		startTime               = time.Now()
 	)
 
+	globals.Lock()
+
+	dirInode, ok = globals.inodeMap[dirInodeNumber]
+	if !ok {
+		// For any reason, the directory inode has been evicted and no longer needs to be prefetched
+		globals.Unlock()
+		return
+	}
+
 	for {
-		globals.Lock()
-
-		dirInode, ok = globals.inodeMap[dirInodeNumber]
-		if !ok {
-			// For any reason, the directory inode has been evicted and no longer needs to be prefetched
-			globals.Unlock()
-			return
-		}
-
 		listDirectoryInput = &listDirectoryInputStruct{
 			continuationToken: continuationToken,
 			maxItems:          dirInode.backend.directoryPageSize,
