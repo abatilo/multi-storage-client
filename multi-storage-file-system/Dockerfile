@@ -121,7 +121,7 @@ FROM buildable AS ais
 
 WORKDIR /
 
-RUN git clone --depth 1 --branch v1.4.1 https://github.com/NVIDIA/aistore.git
+RUN git clone --depth 1 --branch v1.4.2 https://github.com/NVIDIA/aistore.git
 
 WORKDIR /aistore
 

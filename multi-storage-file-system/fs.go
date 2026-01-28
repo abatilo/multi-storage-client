@@ -63,9 +63,6 @@ func initFS() {
 	globals.outboundCacheLineCount = 0
 	globals.dirtyCacheLineLRU = list.New()
 
-	globals.prefetchDirectoryMap = make(map[uint64]*prefetchedDirectoryStruct)
-	globals.prefetchDirectoryList = newTimeToUint64Queue(PrefetchDirectoryList)
-
 	globals.fissionMetrics = newFissionMetrics()
 	globals.backendMetrics = newBackendMetrics()
 
