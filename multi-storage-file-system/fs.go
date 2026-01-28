@@ -39,6 +39,7 @@ func initFS() {
 		fhMap:                  make(map[uint64]*fhStruct),
 		physChildInodeMap:      newStringToUint64Map(PhysChildInodeMap),
 		virtChildInodeMap:      newStringToUint64Map(VirtChildInodeMap),
+		isPrefetchInProgress:   false,
 		cache:                  nil,
 		inboundCacheLineCount:  0,
 		outboundCacheLineCount: 0,
@@ -61,6 +62,9 @@ func initFS() {
 	globals.cleanCacheLineLRU = list.New()
 	globals.outboundCacheLineCount = 0
 	globals.dirtyCacheLineLRU = list.New()
+
+	globals.prefetchDirectoryMap = make(map[uint64]*prefetchedDirectoryStruct)
+	globals.prefetchDirectoryList = newTimeToUint64Queue(PrefetchDirectoryList)
 
 	globals.fissionMetrics = newFissionMetrics()
 	globals.backendMetrics = newBackendMetrics()
@@ -132,6 +136,7 @@ func processToMountList() {
 			fhMap:                  make(map[uint64]*fhStruct),
 			physChildInodeMap:      newStringToUint64Map(PhysChildInodeMap),
 			virtChildInodeMap:      newStringToUint64Map(VirtChildInodeMap),
+			isPrefetchInProgress:   false,
 			cache:                  nil,
 			inboundCacheLineCount:  0,
 			outboundCacheLineCount: 0,
@@ -335,6 +340,7 @@ func (parentInode *inodeStruct) createPseudoDirInode(isVirt bool, basename strin
 		fhMap:                  make(map[uint64]*fhStruct),
 		physChildInodeMap:      newStringToUint64Map(PhysChildInodeMap),
 		virtChildInodeMap:      newStringToUint64Map(VirtChildInodeMap),
+		isPrefetchInProgress:   false,
 		cache:                  nil,
 		inboundCacheLineCount:  0,
 		outboundCacheLineCount: 0,
@@ -396,6 +402,7 @@ func (parentInode *inodeStruct) createFileObjectInode(isVirt bool, basename stri
 		fhMap:                  make(map[uint64]*fhStruct),
 		physChildInodeMap:      nil,
 		virtChildInodeMap:      nil,
+		isPrefetchInProgress:   false,
 		cache:                  make(map[uint64]*cacheLineStruct),
 		inboundCacheLineCount:  0,
 		outboundCacheLineCount: 0,
@@ -698,15 +705,13 @@ func (parentInode *inodeStruct) findChildInode(basename string) (childInode *ino
 		return
 	}
 
-	// We didn't already know about the childInode
+	// We didn't already know about the childInode, so let's first look for an existing object in the backend
 
 	if parentInode.objectPath == "" {
 		dirOrFilePath = basename
 	} else {
 		dirOrFilePath = parentInode.objectPath + basename
 	}
-
-	// Let's look for an existing object in the backend
 
 	statFileInput = &statFileInputStruct{
 		filePath: dirOrFilePath,
@@ -718,6 +723,11 @@ func (parentInode *inodeStruct) findChildInode(basename string) (childInode *ino
 		// We found an existing object in the backend, so let's create a FileObject inode for it
 
 		childInode = parentInode.createFileObjectInode(false, basename, statFileOutput.size, statFileOutput.eTag, statFileOutput.mTime)
+
+		if !parentInode.isPrefetchInProgress {
+			parentInode.isPrefetchInProgress = true
+			go prefetchDirectory(parentInode.inodeNumber)
+		}
 
 		ok = true
 		return
@@ -738,6 +748,11 @@ func (parentInode *inodeStruct) findChildInode(basename string) (childInode *ino
 
 		childInode = parentInode.createPseudoDirInode(false, basename)
 
+		if !parentInode.isPrefetchInProgress {
+			parentInode.isPrefetchInProgress = true
+			go prefetchDirectory(parentInode.inodeNumber)
+		}
+
 		ok = true
 		return
 	}
@@ -748,6 +763,93 @@ func (parentInode *inodeStruct) findChildInode(basename string) (childInode *ino
 	ok = false
 
 	return
+}
+
+// `prefetchDirectory` is run as a background worker to populate globals.inodeMap
+// with inodeStruct's as would occur in DoReadDir() and DoReadDirPlus() to handle
+// the use cases where paths are known by users without the need to discover them
+// via directory listings that would normally trigger such population.
+func prefetchDirectory(dirInodeNumber uint64) {
+	var (
+		basename                string
+		continuationToken       = string("")
+		dirInode                *inodeStruct
+		err                     error
+		latency                 float64
+		listDirectoryOutputFile listDirectoryOutputFileStruct
+		listDirectoryInput      *listDirectoryInputStruct
+		listDirectoryOutput     *listDirectoryOutputStruct
+		ok                      bool
+		startTime               = time.Now()
+	)
+
+	for {
+		globals.Lock()
+
+		dirInode, ok = globals.inodeMap[dirInodeNumber]
+		if !ok {
+			// For any reason, the directory inode has been evicted and no longer needs to be prefetched
+			globals.Unlock()
+			return
+		}
+
+		listDirectoryInput = &listDirectoryInputStruct{
+			continuationToken: continuationToken,
+			maxItems:          dirInode.backend.directoryPageSize,
+			dirPath:           dirInode.objectPath,
+		}
+
+		globals.Unlock()
+
+		listDirectoryOutput, err = listDirectoryWrapper(dirInode.backend.context, listDirectoryInput)
+		if err != nil {
+			globals.logger.Printf("[WARN] listDirectoryWrapper(dirInode.backend.context, listDirectoryInput) failed: %v", err)
+		}
+
+		globals.Lock()
+
+		dirInode, ok = globals.inodeMap[dirInodeNumber]
+
+		// Check first to see if we should continue or the directory inode has been evicted since we last checked
+
+		if !ok {
+			// For any reason, the directory inode has been evicted and no longer needs to be prefetched
+			globals.Unlock()
+			return
+		}
+
+		// Now we should also cleanly exit if we reported that warning above
+
+		if err != nil {
+			dirInode.isPrefetchInProgress = false
+			globals.Unlock()
+			return
+		}
+
+		for _, basename = range listDirectoryOutput.subdirectory {
+			// The following will only create the childDirInode if necessary
+			_ = dirInode.findChildDirInode(basename)
+		}
+
+		for _, listDirectoryOutputFile = range listDirectoryOutput.file {
+			// The following will only create the childFileInode if necessary
+			_ = dirInode.findChildFileInode(listDirectoryOutputFile.basename, listDirectoryOutputFile.eTag, listDirectoryOutputFile.mTime, listDirectoryOutputFile.size)
+		}
+
+		dirInode.touch(nil)
+
+		if listDirectoryOutput.isTruncated {
+			continuationToken = listDirectoryOutput.nextContinuationToken
+		} else {
+			// Finished prefetching directory
+			dirInode.isPrefetchInProgress = false
+			latency = time.Since(startTime).Seconds()
+			globals.backendMetrics.DirectoryPrefetchLatencies.Observe(latency)
+			dirInode.backend.backendMetrics.DirectoryPrefetchLatencies.Observe(latency)
+			globals.Unlock()
+			return
+		}
+	}
 }
 
 // `findChildDirInode` is called to locate, or create if missing, a child directory inodeStruct.

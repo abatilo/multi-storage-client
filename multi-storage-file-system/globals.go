@@ -205,6 +205,8 @@ const (
 	VirtChildInodeMap = "inodeStruct.virtChildInodeMap"
 
 	InodeEvictionLRU = "globalsStruct.inodeEvictionLRU"
+
+	PrefetchDirectoryList = "globals.Struct.prefetchDirectoryList"
 )
 
 const (
@@ -244,39 +246,63 @@ type inodeStruct struct {
 	fhMap                  map[uint64]*fhStruct        // Key == fhStruct.nonce; Value == *fhStruct
 	physChildInodeMap      *stringToUint64MapStruct    // [inodeType != FileObject] maps dirEntries of type FileObject or PseudoDir for which there are existing backend objects
 	virtChildInodeMap      *stringToUint64MapStruct    // [inodeType != FileObject] maps dirEntries "." and ".." as well as others of type BackendRootDir plus those of type FileObject or PseudoDir for which there doesn't yet exist backing objects
+	isPrefetchInProgress   bool                        // [inodeType == BackendRootDir || PseudoDir] indicates that a background prefetch of the directory is in progress
 	cache                  map[uint64]*cacheLineStruct // [inodeType == FileObject] Key == file offset / globals.config.cacheLineSize
 	inboundCacheLineCount  uint64                      // [inodeType == FileObject] cound of .cache[] elements in state CacheLineInbound
 	outboundCacheLineCount uint64                      // [inodeType == FileObject] cound of .cache[] elements in state CacheLineOutbound
 	dirtyCacheLineCount    uint64                      // [inodeType == FileObject] cound of .cache[] elements in state CacheLineDirty
 }
 
+// `prefetchedDirectoryEntryStruct` represents a directory entry as referenced
+// in a `listDirectoryOutputStruct`. It is referenced by a `.file[]`'s element's
+// `.basename` (.isDir == false) or a `.subdirectory[]'s string (.isDir == true).
+type prefetchedDirectoryEntryStruct struct {
+	isDir bool
+	eTag  string    // if .isDir == false, comes from listDirectoryObjectFileStruct.eTag
+	mTime time.Time // if .isDir == false, comes from listDirectoryObjectFileStruct.mTime
+	size  uint64    // if .isDir == false, comes from listDirectoryObjectFileStruct.size
+}
+
+// `prefetchedDirectoryStruct` contains the results from an exhaustive walk of
+// a directory via `listDirectory()` calls. It is a simple map from `basename`
+// to a `prefetchedDirectoryEntryStruct`.
+type prefetchedDirectoryStruct struct {
+	inodeNumber uint64                                     // The directory's inodeStruct.inodeNumber
+	isCanceled  bool                                       // Provides lazy indication to population daemon to abandon the population and clean-up
+	listElement *list.Element                              // If == nil, .dirEntryMap is being populated; if != nil, maintains position on globals.dirPrefetchList identified by .xTime and .inodeNumber
+	xTime       time.Time                                  // If .listElement == nil, records start time of .dirEntryMap population; if .listElement != nil, holds the expiration time
+	dirEntryMap map[string]*prefetchedDirectoryEntryStruct // Key: basename
+}
+
 // `globalsStruct` is the sync.Mutex protected global data structure under which all details about daemon state are tracked.
 type globalsStruct struct {
-	sync.Mutex                                       //
-	logger                 *log.Logger               //
-	metrics                interface{}               // observability.MSFSMetrics (nil if observability disabled)
-	meterProvider          interface{}               // *sdkmetric.MeterProvider (nil if observability disabled)
-	configFilePath         string                    //
-	config                 *configStruct             //
-	configFileMap          map[string]interface{}    // Parsed config map for msc_config attribute provider
-	backendsToUnmount      map[string]*backendStruct //
-	backendsToMount        map[string]*backendStruct //
-	backendsSkipped        map[string]struct{}       //
-	errChan                chan error                //
-	fissionVolume          fission.Volume            //
-	lastNonce              uint64                    // Used to safely allocate non-repeating values (initialized to FUSERootDirInodeNumber to ensure skipping it)
-	inode                  *inodeStruct              // Link to the lone inodeStruct with .inodeNumber == FUSERootDirInodeNumber && .inodeType == FUSERootDir
-	inodeMap               map[uint64]*inodeStruct   // Key: inodeStruct.inodeNumber
-	inodeEvictionLRU       *timeToUint64QueueStruct  // Contains inodeStruct.listElement's of inode.inodeNumber's ordered by inode.xTime
-	inodeEvictorContext    context.Context           //
-	inodeEvictorCancelFunc context.CancelFunc        //
-	inodeEvictorWaitGroup  sync.WaitGroup            //
-	inboundCacheLineCount  uint64                    // Count of cacheLineStruct's where state == CacheLineInbound
-	cleanCacheLineLRU      *list.List                // Contains cacheLineStruct.listElement's for state == CacheLineClean
-	outboundCacheLineCount uint64                    // Count of cacheLineStruct's where state == CacheLineOutbound
-	dirtyCacheLineLRU      *list.List                // Contains cacheLineStruct.listElement's for state == CacheLineDirty
-	fissionMetrics         *fissionMetricsStruct     //
-	backendMetrics         *backendMetricsStruct     //
+	sync.Mutex                                                   //
+	logger                 *log.Logger                           //
+	metrics                interface{}                           // observability.MSFSMetrics (nil if observability disabled)
+	meterProvider          interface{}                           // *sdkmetric.MeterProvider (nil if observability disabled)
+	configFilePath         string                                //
+	config                 *configStruct                         //
+	configFileMap          map[string]interface{}                // Parsed config map for msc_config attribute provider
+	backendsToUnmount      map[string]*backendStruct             //
+	backendsToMount        map[string]*backendStruct             //
+	backendsSkipped        map[string]struct{}                   //
+	errChan                chan error                            //
+	fissionVolume          fission.Volume                        //
+	lastNonce              uint64                                // Used to safely allocate non-repeating values (initialized to FUSERootDirInodeNumber to ensure skipping it)
+	inode                  *inodeStruct                          // Link to the lone inodeStruct with .inodeNumber == FUSERootDirInodeNumber && .inodeType == FUSERootDir
+	inodeMap               map[uint64]*inodeStruct               // Key: inodeStruct.inodeNumber
+	inodeEvictionLRU       *timeToUint64QueueStruct              // Contains inodeStruct.listElement's of inodeStruct.inodeNumber's ordered by inodeStruct.xTime
+	inodeEvictorContext    context.Context                       //
+	inodeEvictorCancelFunc context.CancelFunc                    //
+	inodeEvictorWaitGroup  sync.WaitGroup                        //
+	inboundCacheLineCount  uint64                                // Count of cacheLineStruct's where state == CacheLineInbound
+	cleanCacheLineLRU      *list.List                            // Contains cacheLineStruct.listElement's for state == CacheLineClean
+	outboundCacheLineCount uint64                                // Count of cacheLineStruct's where state == CacheLineOutbound
+	dirtyCacheLineLRU      *list.List                            // Contains cacheLineStruct.listElement's for state == CacheLineDirty
+	prefetchDirectoryMap   map[uint64]*prefetchedDirectoryStruct // Key: directory inode's inodeStruct.inodeNumber
+	prefetchDirectoryList  *timeToUint64QueueStruct              // Contains prefetchedDirectoryStruct.listElmement's of directory inode's inodeStruct.inodeNumber ordered by prefetchedDirectoryStruct.xTime
+	fissionMetrics         *fissionMetricsStruct                 //
+	backendMetrics         *backendMetricsStruct                 //
 }
 
 var globals globalsStruct

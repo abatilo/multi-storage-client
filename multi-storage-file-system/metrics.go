@@ -426,6 +426,8 @@ type backendMetricsStruct struct {
 	StatFileFailures              prometheus.Counter
 	StatFileSuccessLatencies      prometheus.Histogram
 	StatFileFailureLatencies      prometheus.Histogram
+
+	DirectoryPrefetchLatencies prometheus.Histogram
 }
 
 // `newBackendMetrics` provisions and initializes a `backendMetricsStruct`.
@@ -525,6 +527,12 @@ func newBackendMetrics() (backendMetrics *backendMetricsStruct) {
 		StatFileFailureLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "backend_stat_file_failure_latency_seconds",
 			Help:    "Latency of failed StatFile operations",
+			Buckets: latencyBuckets,
+		}),
+
+		DirectoryPrefetchLatencies: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "backend_directory_prefetch_latency_seconds",
+			Help:    "Latency of directory prefetch operations",
 			Buckets: latencyBuckets,
 		}),
 	}

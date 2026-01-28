@@ -293,4 +293,5 @@ func registerBackendMetrics(registry *prometheus.Registry, m *backendMetricsStru
 	registry.MustRegister(m.StatFileFailures)
 	registry.MustRegister(m.StatFileSuccessLatencies)
 	registry.MustRegister(m.StatFileFailureLatencies)
+	registry.MustRegister(m.DirectoryPrefetchLatencies)
 }

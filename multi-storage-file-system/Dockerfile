@@ -20,6 +20,8 @@ RUN    apt-get update \
     && apt-get install -y \
                         build-essential \
                         curl \
+                        debhelper \
+                        devscripts \
                         dnsutils \
                         fio \
                         fuse3 \
@@ -27,6 +29,9 @@ RUN    apt-get update \
                         git-lfs \
                         iputils-ping \
                         jq \
+                        libaio1t64 \
+                        libaio-dev \
+                        libboost-all-dev \
                         libfuse3-dev \
                         librpm-dev \
                         lsof \
@@ -51,13 +56,20 @@ RUN GolangBasename="go${GolangVersion}.linux-${TARGETARCH}.tar.gz"; \
     tar -C /usr/local -xzf ${GolangBasename}
 ENV PATH=$PATH:/usr/local/go/bin
 
+# WORKDIR /tmp
 # RUN git clone --depth 1 --branch master https://github.com/go-delve/delve
 # WORKDIR /tmp/delve
 # RUN go build github.com/go-delve/delve/cmd/dlv
 # RUN cp dlv /usr/local/go/bin/.
 
-WORKDIR /tmp
+# WORKDIR /tmp
+# RUN git clone --depth 1 https://github.com/breuner/elbencho.git
+# WORKDIR /tmp/elbencho
+# RUN make -j $(nproc)
+# RUN make deb
+# RUN apt install ./packaging/elbencho*.deb
 
+WORKDIR /tmp
 RUN if [ "$TARGETARCH" = "amd64" ]; then AWS_ARCH="x86_64"; else AWS_ARCH="aarch64"; fi && \
     curl "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o "awscliv2.zip" && \
     unzip awscliv2.zip && \
