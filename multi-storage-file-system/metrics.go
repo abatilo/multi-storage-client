@@ -60,6 +60,7 @@ type fissionMetricsStruct struct {
 	ReadDirFailures             prometheus.Counter
 	ReadDirSuccessLatencies     prometheus.Histogram
 	ReadDirFailureLatencies     prometheus.Histogram
+	ReadDirEntriesReturned      prometheus.Counter
 	ReleaseDirSuccesses         prometheus.Counter
 	ReleaseDirFailures          prometheus.Counter
 	ReleaseDirSuccessLatencies  prometheus.Histogram
@@ -72,6 +73,7 @@ type fissionMetricsStruct struct {
 	ReadDirPlusFailures         prometheus.Counter
 	ReadDirPlusSuccessLatencies prometheus.Histogram
 	ReadDirPlusFailureLatencies prometheus.Histogram
+	ReadDirPlusEntriesReturned  prometheus.Counter
 	StatXSuccesses              prometheus.Counter
 	StatXFailures               prometheus.Counter
 	StatXSuccessLatencies       prometheus.Histogram
@@ -322,6 +324,10 @@ func newFissionMetrics() (fissionMetrics *fissionMetricsStruct) {
 			Help:    "Latency of failed ReadDir operations",
 			Buckets: latencyBuckets,
 		}),
+		ReadDirEntriesReturned: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_readdir_entries_total",
+			Help: "Total number of directory entries returned across successful ReadDir operations",
+		}),
 
 		ReleaseDirSuccesses: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "fission_releasedir_successes_total",
@@ -378,6 +384,10 @@ func newFissionMetrics() (fissionMetrics *fissionMetricsStruct) {
 			Name:    "fission_readdirplus_failure_latency_seconds",
 			Help:    "Latency of failed ReadDirPlus operations",
 			Buckets: latencyBuckets,
+		}),
+		ReadDirPlusEntriesReturned: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fission_readdirplus_entries_total",
+			Help: "Total number of directory entries returned across successful ReadDirPlus operations",
 		}),
 
 		StatXSuccesses: prometheus.NewCounter(prometheus.CounterOpts{

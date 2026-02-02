@@ -1236,14 +1236,26 @@ func (*globalsStruct) DoReadDir(inHeader *fission.InHeader, readDirIn *fission.R
 	)
 
 	defer func() {
+		var entriesReturned float64
+		if (errno == 0) && (readDirOut != nil) {
+			entriesReturned = float64(len(readDirOut.DirEnt))
+		}
+
 		latency = time.Since(startTime).Seconds()
 		globals.Lock()
 		if errno == 0 {
 			globals.fissionMetrics.ReadDirSuccesses.Inc()
 			globals.fissionMetrics.ReadDirSuccessLatencies.Observe(latency)
+			if entriesReturned != 0 {
+				globals.fissionMetrics.ReadDirEntriesReturned.Add(entriesReturned)
+			}
+
 			if (parentInode != nil) && (parentInode.backend != nil) {
 				parentInode.backend.fissionMetrics.ReadDirSuccesses.Inc()
 				parentInode.backend.fissionMetrics.ReadDirSuccessLatencies.Observe(latency)
+				if entriesReturned != 0 {
+					parentInode.backend.fissionMetrics.ReadDirEntriesReturned.Add(entriesReturned)
+				}
 			}
 		} else {
 			globals.fissionMetrics.ReadDirFailures.Inc()
@@ -1727,14 +1739,26 @@ func (*globalsStruct) DoReadDirPlus(inHeader *fission.InHeader, readDirPlusIn *f
 	)
 
 	defer func() {
+		var entriesReturned float64
+		if (errno == 0) && (readDirPlusOut != nil) {
+			entriesReturned = float64(len(readDirPlusOut.DirEntPlus))
+		}
+
 		latency = time.Since(startTime).Seconds()
 		globals.Lock()
 		if errno == 0 {
 			globals.fissionMetrics.ReadDirPlusSuccesses.Inc()
 			globals.fissionMetrics.ReadDirPlusSuccessLatencies.Observe(latency)
+			if entriesReturned != 0 {
+				globals.fissionMetrics.ReadDirPlusEntriesReturned.Add(entriesReturned)
+			}
+
 			if (parentInode != nil) && (parentInode.backend != nil) {
 				parentInode.backend.fissionMetrics.ReadDirPlusSuccesses.Inc()
 				parentInode.backend.fissionMetrics.ReadDirPlusSuccessLatencies.Observe(latency)
+				if entriesReturned != 0 {
+					parentInode.backend.fissionMetrics.ReadDirPlusEntriesReturned.Add(entriesReturned)
+				}
 			}
 		} else {
 			globals.fissionMetrics.ReadDirPlusFailures.Inc()

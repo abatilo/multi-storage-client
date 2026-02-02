@@ -56,7 +56,7 @@ func (backend *backendStruct) setupAIStoreContext() (err error) {
 			transport.TLSClientConfig = &tls.Config{}
 		}
 		transport.TLSClientConfig.InsecureSkipVerify = true
-		transport.TLSClientConfig.MinVersion = tls.VersionTLS13
+		transport.TLSClientConfig.MinVersion = tls.VersionTLS12 // Match S3 backend: allow TLS 1.2+
 	}
 
 	// Fetch  AuthN Token from either backendAIStore.authnToken or backendAIStore.authnTokenFile
@@ -76,9 +76,14 @@ func (backend *backendStruct) setupAIStoreContext() (err error) {
 	}
 
 	// Create base parameters for AIStore API
+	// Note: AIStore SDK handles URL scheme construction internally based on the endpoint format
+	if backendAIStore.endpoint == "" {
+		err = fmt.Errorf("AIStore endpoint is empty - check AIS_ENDPOINT environment variable")
+		return
+	}
 	baseParams := api.BaseParams{
 		Client: httpClient,
-		URL:    backendAIStore.endpoint,
+		URL:    backendAIStore.endpoint, // Use endpoint as-is (SDK handles scheme)
 		Token:  authnToken,
 		UA:     "multi-storage-file-system", // User-Agent string for identification
 	}
