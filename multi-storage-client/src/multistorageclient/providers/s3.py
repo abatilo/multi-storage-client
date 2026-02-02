@@ -588,12 +588,17 @@ class S3StorageProvider(BaseStorageProvider):
 
             for page in page_iterator:
                 for item in page.get("CommonPrefixes", []):
-                    yield ObjectMetadata(
-                        key=os.path.join(bucket, item["Prefix"].rstrip("/")),
-                        type="directory",
-                        content_length=0,
-                        last_modified=AWARE_DATETIME_MIN,
-                    )
+                    prefix_key = item["Prefix"].rstrip("/")
+                    # Filter by start_after and end_at - S3's StartAfter doesn't filter CommonPrefixes
+                    if (start_after is None or start_after < prefix_key) and (end_at is None or prefix_key <= end_at):
+                        yield ObjectMetadata(
+                            key=os.path.join(bucket, prefix_key),
+                            type="directory",
+                            content_length=0,
+                            last_modified=AWARE_DATETIME_MIN,
+                        )
+                    elif end_at is not None and end_at < prefix_key:
+                        return
 
                 # S3 guarantees lexicographical order for general purpose buckets (for
                 # normal S3) but not directory buckets (for S3 Express One Zone).

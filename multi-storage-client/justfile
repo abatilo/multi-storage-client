@@ -32,6 +32,10 @@ start-repl: prepare-toolchain
     # Start the Python REPL.
     uv run python
 
+# Start the MSC Explorer backend.
+start-explorer: prepare-toolchain
+    uv run python -m multistorageclient.commands.cli.main explorer
+
 # Run static analysis (format, lint, type check).
 analyze: prepare-toolchain
     # Remove analysis artifacts.

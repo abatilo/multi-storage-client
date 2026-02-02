@@ -11,8 +11,12 @@ python-binary := "python"
 help:
     just --list
 
+# Build multi-storage-explorer frontend.
+multi-storage-explorer:
+    just multi-storage-explorer/build
+
 # Build multi-storage-client.
-multi-storage-client:
+multi-storage-client: multi-storage-explorer
     just python-binary={{python-binary}} multi-storage-client/build
 
 # Build multi-storage-client-docs.
@@ -20,4 +24,4 @@ multi-storage-client-docs: multi-storage-client
     just python-binary={{python-binary}} multi-storage-client-docs/build
 
 # Release build.
-build: multi-storage-client multi-storage-client-docs
+build: multi-storage-explorer multi-storage-client multi-storage-client-docs

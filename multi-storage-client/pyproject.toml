@@ -61,6 +61,14 @@ mcp = [
     "fastmcp>=2.11.2; python_version>='3.10'"
 ]
 
+# Explorer web UI.
+explorer = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart>=0.0.6",
+    "aiofiles>=23.2.1",
+]
+
 # Storage providers.
 aistore = [
     "aistore>=1.16,<2"
@@ -161,6 +169,10 @@ python-packages = [
     "multistorageclient",
     "multistorageclient_rust",
     "hydra_plugins"
+]
+# Include pre-built static assets for MSC Explorer in the wheel
+include = [
+    { path = "src/multistorageclient/explorer/static/**/*", format = "wheel" }
 ]
 
 [tool.pyright]

@@ -366,12 +366,17 @@ class AzureBlobStorageProvider(BaseStorageProvider):
             # Azure guarantees lexicographical order.
             for blob in blobs:
                 if isinstance(blob, BlobPrefix):
-                    yield ObjectMetadata(
-                        key=os.path.join(container_name, blob.name.rstrip("/")),
-                        type="directory",
-                        content_length=0,
-                        last_modified=AWARE_DATETIME_MIN,
-                    )
+                    prefix_key = blob.name.rstrip("/")
+                    # Filter by start_after and end_at if specified
+                    if (start_after is None or start_after < prefix_key) and (end_at is None or prefix_key <= end_at):
+                        yield ObjectMetadata(
+                            key=os.path.join(container_name, prefix_key),
+                            type="directory",
+                            content_length=0,
+                            last_modified=AWARE_DATETIME_MIN,
+                        )
+                    elif end_at is not None and end_at < prefix_key:
+                        return
                 else:
                     key = blob.name
                     if (start_after is None or start_after < key) and (end_at is None or key <= end_at):

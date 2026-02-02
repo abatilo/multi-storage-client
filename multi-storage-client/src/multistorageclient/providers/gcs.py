@@ -616,12 +616,15 @@ class GoogleStorageProvider(BaseStorageProvider):
             # The directories must be accessed last.
             if include_directories:
                 for directory in blobs.prefixes:
-                    yield ObjectMetadata(
-                        key=os.path.join(bucket, directory.rstrip("/")),
-                        type="directory",
-                        content_length=0,
-                        last_modified=AWARE_DATETIME_MIN,
-                    )
+                    prefix_key = directory.rstrip("/")
+                    # Filter by start_after and end_at if specified
+                    if (start_after is None or start_after < prefix_key) and (end_at is None or prefix_key <= end_at):
+                        yield ObjectMetadata(
+                            key=os.path.join(bucket, prefix_key),
+                            type="directory",
+                            content_length=0,
+                            last_modified=AWARE_DATETIME_MIN,
+                        )
 
         return self._translate_errors(_invoke_api, operation="LIST", bucket=bucket, key=prefix)
 

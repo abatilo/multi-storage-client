@@ -377,12 +377,19 @@ class OracleStorageProvider(BaseStorageProvider):
 
                 if include_directories:
                     for directory in response.data.prefixes:
-                        yield ObjectMetadata(
-                            key=directory.rstrip("/"),
-                            type="directory",
-                            content_length=0,
-                            last_modified=AWARE_DATETIME_MIN,
-                        )
+                        prefix_key = directory.rstrip("/")
+                        # Filter by start_after and end_at if specified
+                        if (start_after is None or start_after < prefix_key) and (
+                            end_at is None or prefix_key <= end_at
+                        ):
+                            yield ObjectMetadata(
+                                key=os.path.join(bucket, prefix_key),
+                                type="directory",
+                                content_length=0,
+                                last_modified=AWARE_DATETIME_MIN,
+                            )
+                        elif end_at is not None and end_at < prefix_key:
+                            return
 
                 # OCI guarantees lexicographical order.
                 for response_object in response.data.objects:  # pyright: ignore [reportOptionalMemberAccess]

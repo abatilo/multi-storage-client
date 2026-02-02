@@ -23,12 +23,13 @@ The ``msc help`` command displays general help information and available command
    msc help <command>
 
    commands:
-   config   MSC configuration management commands
-   glob     Find files using Unix-style wildcard patterns with optional attribute filtering
-   help     Display help for commands
-   ls       List files and directories with optional attribute filtering
-   rm       Delete files with a given prefix
-   sync     Synchronize files from the source storage to the target storage
+   config    MSC configuration management commands
+   explorer  Start the MSC Explorer application for browsing files
+   glob      Find files using Unix-style wildcard patterns with optional attribute filtering
+   help      Display help for commands
+   ls        List files and directories with optional attribute filtering
+   rm        Delete files with a given prefix
+   sync      Synchronize files from the source storage to the target storage
 
 
 ******
@@ -164,6 +165,23 @@ The ``msc config`` command provides configuration management utilities for MSC. 
         type: s3
         options:
           base_path: my-bucket
+
+************
+msc explorer
+************
+
+The ``msc explorer`` command starts the MSC Explorer web application, providing a graphical user interface for browsing files across your configured storage backends.
+
+.. code-block:: bash
+
+  $ msc explorer
+
+The Explorer will start on ``http://127.0.0.1:8888``. Open this URL in your browser to access the interface.
+
+.. note::
+   Requires optional dependencies: ``pip install multistorageclient[explorer]``
+
+For complete details about the MSC Explorer and its features, see :doc:`/user_guide/explorer`.
 
 ******
 msc rm

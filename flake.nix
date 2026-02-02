@@ -162,6 +162,8 @@
                 just
                 # Python.
                 pythonPackage
+                # Node.js for MSC Explorer frontend development.
+                nodejs
                 # Rust.
                 rustup
                 # uv.

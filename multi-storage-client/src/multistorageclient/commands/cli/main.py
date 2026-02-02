@@ -21,6 +21,7 @@ import multistorageclient as msc
 from .actions import (
     ActionRegistry,
     ConfigAction,
+    ExplorerAction,
     HelpAction,
     LsAction,
     MCPServerAction,
@@ -59,6 +60,7 @@ def main() -> int:
     # Register commands with instances
     registry.register_action(HelpAction(registry))
     registry.register_action(ConfigAction())
+    registry.register_action(ExplorerAction())
     registry.register_action(SyncAction())
     registry.register_action(LsAction())
     registry.register_action(RmAction())

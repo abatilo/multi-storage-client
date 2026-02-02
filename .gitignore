@@ -23,10 +23,14 @@
 **/.venv
 **/__pycache__
 **/dist
+**/node_modules
 **/result
 **/rust/target
 *.o
 *.so
+
+# MSC Explorer frontend build output (included in wheel, not in repo).
+multi-storage-client/src/multistorageclient/explorer/static/
 
 # Storage systems.
 **/.aistore/sandbox

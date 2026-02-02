@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,13 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Default limit (512MB) for loading files into memory
-MEMORY_LOAD_LIMIT = 512 * 1024 * 1024
+from .server import app
 
-# Default timeout values (in seconds) for storage provider connections
-DEFAULT_CONNECT_TIMEOUT = 60
-DEFAULT_READ_TIMEOUT = 60
-
-# Default host and port for the MSC Explorer application
-DEFAULT_EXPLORER_HOST = "127.0.0.1"
-DEFAULT_EXPLORER_PORT = 8888
+__all__ = ["app"]

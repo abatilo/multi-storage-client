@@ -41,3 +41,12 @@ jobs:
       - working-directory: ./multi-storage-client-docs
         run: |
           just build
+  multi-storage-explorer:
+    name: multi-storage-explorer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: actions/checkout@v4
+      - working-directory: ./multi-storage-explorer
+        run: |
+          just build
