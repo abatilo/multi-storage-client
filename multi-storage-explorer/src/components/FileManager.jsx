@@ -113,15 +113,10 @@ const FileManager = ({ profiles }) => {
       const mightHaveMore = receivedCount === 1000;
       setHasMore(mightHaveMore);
       
-      // Store last key for next page (object storage key without MSC URL prefix)
+      // Store last key for next page
       if (receivedCount > 0) {
         const lastItem = response.items[receivedCount - 1];
-        let key = lastItem.key || lastItem.name;
-        // Remove any msc:// prefix if present
-        if (key.startsWith('msc://')) {
-          // Extract just the path after msc://profile/
-          key = key.replace(/^msc:\/\/[^/]+\//, '');
-        }
+        const key = lastItem.key || lastItem.name;
         setLastKey(key);
       }
 

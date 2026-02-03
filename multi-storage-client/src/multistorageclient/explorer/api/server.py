@@ -270,7 +270,7 @@ async def list_files(request: ListRequest):
                 start_after=request.start_after,
                 end_at=request.end_at,
                 include_directories=request.include_directories,
-                include_url_prefix=True,
+                include_url_prefix=False,
             )
 
             # Only consume up to limit items from iterator to avoid loading all objects
