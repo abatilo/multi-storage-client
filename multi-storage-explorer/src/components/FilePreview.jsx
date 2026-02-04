@@ -32,7 +32,7 @@ const FilePreview = ({
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('metadata');
+  const [activeTab, setActiveTab] = useState('properties');
 
   // Load file info when modal opens
   useEffect(() => {
@@ -51,7 +51,10 @@ const FilePreview = ({
           content_type: data.content_type || 'application/octet-stream',
           etag: data.etag || null
         };
-        setPreviewData({ file_info: fileInfo });
+        setPreviewData({ 
+          file_info: fileInfo,
+          custom_metadata: data.metadata || null
+        });
       } catch (err) {
         const errorMsg = err.response?.data?.detail || 'Failed to load file info';
         setError(errorMsg);
@@ -67,7 +70,7 @@ const FilePreview = ({
       // Reset state when modal closes
       setPreviewData(null);
       setError(null);
-      setActiveTab('metadata');
+      setActiveTab('properties');
     }
   }, [visible, fileUrl, fileName]);
 
@@ -123,12 +126,12 @@ const FilePreview = ({
     return `${month} ${day}, ${year}, ${hours}:${minutes}:${seconds} (${timezone})`;
   };
 
-  const renderMetadataTab = () => {
+  const renderPropertiesTab = () => {
     if (loading) {
       return (
         <div style={{ textAlign: 'center', padding: '60px 20px' }}>
           <Spin size="large" />
-          <p style={{ marginTop: 16, color: '#999' }}>Loading metadata...</p>
+          <p style={{ marginTop: 16, color: '#999' }}>Loading properties...</p>
         </div>
       );
     }
@@ -145,13 +148,18 @@ const FilePreview = ({
     }
 
     if (!previewData || !previewData.file_info) {
-      return <Alert message="No metadata available" type="info" />;
+      return <Alert message="No properties available" type="info" />;
     }
 
     const { file_info } = previewData;
 
     return (
-      <Descriptions bordered column={1} size="small">
+      <Descriptions 
+        bordered 
+        column={1} 
+        size="small"
+        styles={{ label: { whiteSpace: 'nowrap' } }}
+      >
         <Descriptions.Item label="Name">
           {file_info.name}
         </Descriptions.Item>
@@ -180,6 +188,61 @@ const FilePreview = ({
             {fileUrl}
           </Paragraph>
         </Descriptions.Item>
+      </Descriptions>
+    );
+  };
+
+  const renderCustomMetadataTab = () => {
+    if (loading) {
+      return (
+        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+          <Spin size="large" />
+          <p style={{ marginTop: 16, color: '#999' }}>Loading custom metadata...</p>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <Alert
+          message="Error"
+          description={error}
+          type="error"
+          showIcon
+        />
+      );
+    }
+
+    if (!previewData || !previewData.custom_metadata || Object.keys(previewData.custom_metadata).length === 0) {
+      return (
+        <Alert 
+          message="No custom metadata" 
+          description="This file does not have any custom metadata associated with it."
+          type="info" 
+          showIcon
+        />
+      );
+    }
+
+    const { custom_metadata } = previewData;
+
+    return (
+      <Descriptions 
+        bordered 
+        column={1} 
+        size="small"
+        styles={{ label: { whiteSpace: 'nowrap' } }}
+      >
+        {Object.entries(custom_metadata).map(([key, value]) => (
+          <Descriptions.Item key={key} label={key}>
+            <Paragraph 
+              copyable 
+              style={{ margin: 0, fontSize: '12px', wordBreak: 'break-all' }}
+            >
+              {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+            </Paragraph>
+          </Descriptions.Item>
+        ))}
       </Descriptions>
     );
   };
@@ -217,13 +280,14 @@ const FilePreview = ({
         onChange={setActiveTab}
         items={[
           {
-            key: 'metadata',
-            label: (
-              <span>
-                <span>Metadata</span>
-              </span>
-            ),
-            children: renderMetadataTab()
+            key: 'properties',
+            label: 'Properties',
+            children: renderPropertiesTab()
+          },
+          {
+            key: 'custom-metadata',
+            label: 'Custom Metadata',
+            children: renderCustomMetadataTab()
           }
         ]}
       />

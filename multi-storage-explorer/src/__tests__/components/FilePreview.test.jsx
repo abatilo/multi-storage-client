@@ -44,7 +44,7 @@ describe('FilePreview', () => {
       });
     });
 
-    it('shows loading spinner while fetching metadata', async () => {
+    it('shows loading spinner while fetching properties', async () => {
       server.use(
         http.post(`${BASE}/api/files/info`, async () => {
           await new Promise((resolve) => setTimeout(resolve, 100));
@@ -60,7 +60,7 @@ describe('FilePreview', () => {
 
       render(<FilePreview {...defaultProps} />);
 
-      expect(screen.getByText(/loading metadata/i)).toBeInTheDocument();
+      expect(screen.getByText(/loading properties/i)).toBeInTheDocument();
     });
 
     it('does not render when visible is false', () => {
@@ -100,12 +100,12 @@ describe('FilePreview', () => {
     });
   });
 
-  describe('Metadata Display', () => {
-    it('shows file metadata in metadata tab', async () => {
+  describe('Properties and Metadata Display', () => {
+    it('shows file properties in properties tab', async () => {
       server.use(
         http.post(`${BASE}/api/files/info`, () =>
           HttpResponse.json({
-            key: 'metadata-test.txt',
+            key: 'properties-test.txt',
             content_length: 1024,
             last_modified: '2024-01-15T10:30:00Z',
             type: 'file',
@@ -115,16 +115,125 @@ describe('FilePreview', () => {
         )
       );
 
-      render(<FilePreview {...defaultProps} fileName="metadata-test.txt" />);
+      render(<FilePreview {...defaultProps} fileName="properties-test.txt" />);
 
       await waitFor(() => {
-        expect(screen.getByRole('tab', { name: /metadata/i })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: /properties/i })).toBeInTheDocument();
       });
 
       await waitFor(() => {
-        // Check for metadata content
+        // Check for properties content
         expect(screen.getByText('text/plain')).toBeInTheDocument();
         expect(screen.getByText(/"abc123"/)).toBeInTheDocument();
+      });
+    });
+
+    it('shows custom metadata tab', async () => {
+      server.use(
+        http.post(`${BASE}/api/files/info`, () =>
+          HttpResponse.json({
+            key: 'test.txt',
+            content_length: 1024,
+            last_modified: '2024-01-15T10:30:00Z',
+            type: 'file',
+            content_type: 'text/plain',
+            metadata: {
+              author: 'John Doe',
+              version: '1.0',
+              description: 'Test file'
+            }
+          })
+        )
+      );
+
+      render(<FilePreview {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: /custom metadata/i })).toBeInTheDocument();
+      });
+    });
+
+    it('displays custom metadata key-value pairs', async () => {
+      server.use(
+        http.post(`${BASE}/api/files/info`, () =>
+          HttpResponse.json({
+            key: 'test.txt',
+            content_length: 1024,
+            last_modified: '2024-01-15T10:30:00Z',
+            type: 'file',
+            content_type: 'text/plain',
+            metadata: {
+              author: 'John Doe',
+              version: '1.0',
+              description: 'Test file'
+            }
+          })
+        )
+      );
+
+      render(<FilePreview {...defaultProps} />);
+
+      await waitFor(() => {
+        const customMetadataTab = screen.getByRole('tab', { name: /custom metadata/i });
+        customMetadataTab.click();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument();
+        expect(screen.getByText('1.0')).toBeInTheDocument();
+        expect(screen.getByText('Test file')).toBeInTheDocument();
+      });
+    });
+
+    it('shows info message when no custom metadata exists', async () => {
+      server.use(
+        http.post(`${BASE}/api/files/info`, () =>
+          HttpResponse.json({
+            key: 'test.txt',
+            content_length: 1024,
+            last_modified: '2024-01-15T10:30:00Z',
+            type: 'file',
+            content_type: 'text/plain',
+            metadata: null
+          })
+        )
+      );
+
+      render(<FilePreview {...defaultProps} />);
+
+      await waitFor(() => {
+        const customMetadataTab = screen.getByRole('tab', { name: /custom metadata/i });
+        customMetadataTab.click();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/no custom metadata/i)).toBeInTheDocument();
+      });
+    });
+
+    it('shows info message when custom metadata is empty object', async () => {
+      server.use(
+        http.post(`${BASE}/api/files/info`, () =>
+          HttpResponse.json({
+            key: 'test.txt',
+            content_length: 1024,
+            last_modified: '2024-01-15T10:30:00Z',
+            type: 'file',
+            content_type: 'text/plain',
+            metadata: {}
+          })
+        )
+      );
+
+      render(<FilePreview {...defaultProps} />);
+
+      await waitFor(() => {
+        const customMetadataTab = screen.getByRole('tab', { name: /custom metadata/i });
+        customMetadataTab.click();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/no custom metadata/i)).toBeInTheDocument();
       });
     });
   });
