@@ -48,7 +48,7 @@ RUN    apt-get update \
 RUN echo "user_allow_other" >> /etc/fuse.conf
 
 ARG TARGETARCH
-ARG GolangVersion=1.25.4
+ARG GolangVersion=1.25.6
 WORKDIR /tmp
 RUN GolangBasename="go${GolangVersion}.linux-${TARGETARCH}.tar.gz"; \
     GolangURL="https://golang.org/dl/${GolangBasename}"; \
@@ -61,6 +61,11 @@ ENV PATH=$PATH:/usr/local/go/bin
 # WORKDIR /tmp/delve
 # RUN go build github.com/go-delve/delve/cmd/dlv
 # RUN cp dlv /usr/local/go/bin/.
+
+ARG RustVersion=1.93.0
+WORKDIR /tmp
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $RustVersion
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # WORKDIR /tmp
 # RUN git clone --depth 1 https://github.com/breuner/elbencho.git
@@ -105,6 +110,27 @@ WORKDIR /
 
 RUN rm -rf /multi-storage-client
 
+FROM buildable AS garage
+
+WORKDIR /
+
+# RUN git clone --depth 1 --branch v2.2.0 https://git.deuxfleurs.fr/Deuxfleurs/garage.git
+RUN git clone --depth 1 --branch v2.2.0 https://github.com/deuxfleurs-org/garage.git
+
+WORKDIR /garage
+
+RUN cargo build --release
+
+ENV PATH="/garage/target/release:${PATH}"
+
+RUN mkdir -p /var/lib/garage/meta
+RUN mkdir -p /var/lib/garage/data
+
+COPY multi-storage-file-system/garage.toml /etc/garage.toml
+COPY multi-storage-file-system/garage.sh   /root/garage.sh
+
+WORKDIR /root
+
 FROM buildable AS minio
 
 WORKDIR /
@@ -116,6 +142,23 @@ WORKDIR /minio
 RUN go build
 
 RUN mkdir /data
+
+FROM buildable AS fake-gcs
+
+WORKDIR /
+
+RUN git clone --depth 1 --branch v1.52.3 https://github.com/fsouza/fake-gcs-server.git
+
+WORKDIR /fake-gcs-server
+
+RUN go mod download
+RUN CGO_ENABLED=0 go build -o /bin/fake-gcs-server .
+
+RUN mkdir /data
+
+EXPOSE 4443
+
+ENTRYPOINT ["/bin/fake-gcs-server", "-data", "/data", "-scheme", "http"]
 
 FROM buildable AS ais
 

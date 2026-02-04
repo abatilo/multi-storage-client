@@ -36,6 +36,19 @@ services:
       - "8888:8888"   # Collector's own metrics
 
   # Storage Backends
+  garage:
+    build:
+      context: ..
+      dockerfile: multi-storage-file-system/Dockerfile
+      target: garage
+    container_name: msfs_garage
+    ports:
+      - "3900:3900"
+      - "3903:3903"
+    environment:
+      - GARAGE_ADMIN_TOKEN=test_admin_token
+      - GARAGE_ALLOW_HTTP=true
+    command: /root/garage.sh
   minio:
     build:
       context: ..
@@ -48,6 +61,15 @@ services:
       - MINIO_ROOT_USER=minioadmin
       - MINIO_ROOT_PASSWORD=minioadmin
     command: /minio/minio server /data
+  fake-gcs:
+    build:
+      context: ..
+      dockerfile: multi-storage-file-system/Dockerfile
+      target: fake-gcs
+    container_name: msfs_fake-gcs
+    expose:
+      - 4443
+    command: ["-scheme", "http", "-data", "/data"]
   ais:
     build:
       context: ..
@@ -113,7 +135,9 @@ services:
       - prometheus
       - grafana
       - otel-collector
+      - garage
       - minio
+      - fake-gcs
       - ais
       - ubuntu
       - rocky
