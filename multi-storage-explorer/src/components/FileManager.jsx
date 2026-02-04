@@ -277,6 +277,15 @@ const FileManager = ({ profiles }) => {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
+      sorter: !hasMore ? (a, b) => {
+        const aName = a.name.toLowerCase();
+        const bName = b.name.toLowerCase();
+        if (a.isDir && !b.isDir) return -1;
+        if (!a.isDir && b.isDir) return 1;
+        return aName.localeCompare(bName);
+      } : false,
+      sortDirections: ['ascend', 'descend'],
+      showSorterTooltip: !hasMore,
       render: (text, record) => (
         <Space>
           {record.isDir ? (
@@ -313,6 +322,9 @@ const FileManager = ({ profiles }) => {
         { text: 'File', value: 'file' },
       ],
       onFilter: (value, record) => record.type === value,
+      sorter: !hasMore ? (a, b) => a.type.localeCompare(b.type) : false,
+      sortDirections: ['ascend', 'descend'],
+      showSorterTooltip: !hasMore,
       render: (type) => (
         <Tag color={type === 'directory' ? 'gold' : 'blue'}>
           {type === 'directory' ? 'Folder' : 'File'}
@@ -324,6 +336,14 @@ const FileManager = ({ profiles }) => {
       dataIndex: 'size',
       key: 'size',
       width: 120,
+      sorter: !hasMore ? (a, b) => {
+        if (a.isDir && b.isDir) return 0;
+        if (a.isDir) return -1;
+        if (b.isDir) return 1;
+        return a.size - b.size;
+      } : false,
+      sortDirections: ['ascend', 'descend'],
+      showSorterTooltip: !hasMore,
       render: (size, record) => (
         record.isDir ? '-' : formatFileSize(size)
       ),
@@ -333,6 +353,14 @@ const FileManager = ({ profiles }) => {
       dataIndex: 'modDate',
       key: 'modDate',
       width: 300,
+      sorter: !hasMore ? (a, b) => {
+        if (a.isDir && b.isDir) return 0;
+        if (a.isDir) return -1;
+        if (b.isDir) return 1;
+        return new Date(a.modDate) - new Date(b.modDate);
+      } : false,
+      sortDirections: ['ascend', 'descend'],
+      showSorterTooltip: !hasMore,
       render: (date, record) => (
         record.isDir ? '-' : formatDateTime(date)
       ),
@@ -441,6 +469,16 @@ const FileManager = ({ profiles }) => {
                 type="error"
                 closable
                 onClose={() => setError(null)}
+                showIcon
+              />
+            )}
+
+            {/* Pagination Info Alert */}
+            {hasMore && (
+              <Alert
+                message="Large listing detected"
+                description="Sorting is unavailable until all items have been fully loaded. Scroll to load additional items."
+                type="info"
                 showIcon
               />
             )}

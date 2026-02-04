@@ -131,23 +131,3 @@ multi-storage-client-docs:
       - multi-storage-client-docs/dist/
     reports:
       codequality: multi-storage-client-docs/.reports/ruff.json
-
-multi-storage-explorer:
-  extends:
-    - .default
-  rules:
-    - changes:
-        - flake.lock
-        - flake.nix
-        - multi-storage-explorer/**/*
-    - when: manual
-      allow_failure: true
-  script:
-    - |
-      nix develop --command bash -c "
-        cd multi-storage-explorer &&
-        just build
-      "
-  artifacts:
-    paths:
-      - multi-storage-client/src/multistorageclient/explorer/static/

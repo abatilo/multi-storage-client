@@ -450,4 +450,175 @@ describe('FileManager', () => {
       });
     });
   });
+
+  describe('Sorting', () => {
+    it('enables sorting when all items are loaded (no pagination)', async () => {
+      server.use(
+        http.post(`${BASE}/api/files/list`, () =>
+          HttpResponse.json({
+            items: [
+              {
+                name: 'zebra.txt',
+                key: 'zebra.txt',
+                type: 'file',
+                size: 200,
+                last_modified: '2024-01-15T10:00:00Z',
+                is_directory: false,
+              },
+              {
+                name: 'alpha.txt',
+                key: 'alpha.txt',
+                type: 'file',
+                size: 100,
+                last_modified: '2024-01-16T10:00:00Z',
+                is_directory: false,
+              },
+            ],
+            count: 2,
+          })
+        )
+      );
+
+      render(<FileManager profiles={defaultProfiles} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('zebra.txt')).toBeInTheDocument();
+        expect(screen.getByText('alpha.txt')).toBeInTheDocument();
+      });
+
+      const nameHeader = screen.getByText('Name').closest('th');
+      expect(nameHeader).toBeInTheDocument();
+    });
+
+    it('disables sorting when pagination is required (1000 items)', async () => {
+      const items = Array.from({ length: 1000 }, (_, i) => ({
+        name: `file${i}.txt`,
+        key: `file${i}.txt`,
+        type: 'file',
+        size: 1024,
+        last_modified: '2024-01-15T10:00:00Z',
+        is_directory: false,
+      }));
+
+      server.use(
+        http.post(`${BASE}/api/files/list`, () =>
+          HttpResponse.json({
+            items,
+            count: 1000,
+          })
+        )
+      );
+
+      render(<FileManager profiles={defaultProfiles} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('file0.txt')).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/large listing detected/i)).toBeInTheDocument();
+        expect(screen.getByText(/sorting is unavailable/i)).toBeInTheDocument();
+      });
+    }, 10000);
+
+    it('shows pagination info alert when hasMore is true', async () => {
+      const items = Array.from({ length: 1000 }, (_, i) => ({
+        name: `file${i}.txt`,
+        key: `file${i}.txt`,
+        type: 'file',
+        size: 1024,
+        last_modified: '2024-01-15T10:00:00Z',
+        is_directory: false,
+      }));
+
+      server.use(
+        http.post(`${BASE}/api/files/list`, () =>
+          HttpResponse.json({
+            items,
+            count: 1000,
+          })
+        )
+      );
+
+      render(<FileManager profiles={defaultProfiles} />);
+
+      await waitFor(() => {
+        const alert = screen.getByText(/sorting is unavailable until all items have been fully loaded/i);
+        expect(alert).toBeInTheDocument();
+      });
+    }, 10000);
+
+    it('does not show pagination alert when all items are loaded', async () => {
+      server.use(
+        http.post(`${BASE}/api/files/list`, () =>
+          HttpResponse.json({
+            items: [
+              {
+                name: 'test.txt',
+                key: 'test.txt',
+                type: 'file',
+                size: 1024,
+                last_modified: '2024-01-15T10:00:00Z',
+                is_directory: false,
+              },
+            ],
+            count: 1,
+          })
+        )
+      );
+
+      render(<FileManager profiles={defaultProfiles} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('test.txt')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText(/large listing detected/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/sorting is unavailable/i)).not.toBeInTheDocument();
+    });
+
+    it('sorts files and folders separately', async () => {
+      server.use(
+        http.post(`${BASE}/api/files/list`, () =>
+          HttpResponse.json({
+            items: [
+              {
+                name: 'zebra-folder',
+                key: 'zebra-folder/',
+                type: 'directory',
+                size: 0,
+                last_modified: '2024-01-15T10:00:00Z',
+                is_directory: true,
+              },
+              {
+                name: 'alpha.txt',
+                key: 'alpha.txt',
+                type: 'file',
+                size: 100,
+                last_modified: '2024-01-15T10:00:00Z',
+                is_directory: false,
+              },
+              {
+                name: 'alpha-folder',
+                key: 'alpha-folder/',
+                type: 'directory',
+                size: 0,
+                last_modified: '2024-01-15T10:00:00Z',
+                is_directory: true,
+              },
+            ],
+            count: 3,
+          })
+        )
+      );
+
+      render(<FileManager profiles={defaultProfiles} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('zebra-folder/')).toBeInTheDocument();
+        expect(screen.getByText('alpha.txt')).toBeInTheDocument();
+        expect(screen.getByText('alpha-folder/')).toBeInTheDocument();
+      });
+    });
+  });
 });
