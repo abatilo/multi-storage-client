@@ -1148,6 +1148,18 @@ wheels = [
 ]
 
 [[package]]
+name = "hvac"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/a4/c0b698a7250b7a5c2956427406560701862215c646e079a7907846608f44/hvac-2.3.0.tar.gz", hash = "sha256:1b85e3320e8642dd82f234db63253cda169a817589e823713dc5fca83119b1e2", size = 332660, upload-time = "2024-06-18T14:46:09.748Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/34/56facf52e2ea14ce640f434ccf00311af6f3a1df0019d4682ba28ea09948/hvac-2.3.0-py3-none-any.whl", hash = "sha256:a3afc5710760b6ee9b3571769df87a0333da45da05a5f9f963e1d3925a84be7d", size = 155860, upload-time = "2024-06-18T14:46:05.399Z" },
+]
+
+[[package]]
 name = "hydra-core"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1760,6 +1772,9 @@ ray = [
 torch = [
     { name = "torch" },
 ]
+vault = [
+    { name = "hvac" },
+]
 xarray = [
     { name = "xarray" },
 ]
@@ -1798,6 +1813,7 @@ requires-dist = [
     { name = "google-cloud-storage", marker = "extra == 'google-cloud-storage'", specifier = ">=3.2,<4" },
     { name = "hf-transfer", marker = "extra == 'huggingface'", specifier = ">=0.1.9" },
     { name = "huggingface-hub", marker = "extra == 'huggingface'", specifier = ">=0.34.4,<1" },
+    { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.3,<3" },
     { name = "hydra-core", marker = "extra == 'hydra-core'", specifier = ">=1.3,<2" },
     { name = "jmespath", specifier = ">=1.0.1,<2" },
     { name = "jsonschema", specifier = ">=4,<5" },
@@ -1827,7 +1843,7 @@ requires-dist = [
     { name = "zarr", marker = "python_full_version == '3.10.*' and extra == 'zarr'", specifier = ">=2.18.3,<3" },
     { name = "zarr", marker = "python_full_version >= '3.11' and extra == 'zarr'", specifier = ">=2.18.7,<3" },
 ]
-provides-extras = ["observability-otel", "msal", "mcp", "explorer", "aistore", "azure-storage-blob", "boto3", "google-cloud-storage", "huggingface", "oci", "parquet", "fsspec", "hydra-core", "numpy", "ray", "torch", "xarray", "zarr"]
+provides-extras = ["observability-otel", "msal", "vault", "mcp", "explorer", "aistore", "azure-storage-blob", "boto3", "google-cloud-storage", "huggingface", "oci", "parquet", "fsspec", "hydra-core", "numpy", "ray", "torch", "xarray", "zarr"]
 
 [package.metadata.requires-dev]
 dev = [

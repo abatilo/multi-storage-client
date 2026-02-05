@@ -48,6 +48,7 @@ _METRICS_EXPORTER_MAPPING = {
     "otlp": "opentelemetry.exporter.otlp.proto.http.metric_exporter.OTLPMetricExporter",
     # "Private" until it's decided whether this will be official.
     "_otlp_msal": "multistorageclient.telemetry.metrics.exporters.otlp_msal._OTLPMSALMetricExporter",
+    "_otlp_mtls_vault": "multistorageclient.telemetry.metrics.exporters.otlp_mtls_vault._OTLPmTLSVaultMetricExporter",
 }
 
 _TRACE_EXPORTER_MAPPING = {
@@ -182,7 +183,7 @@ class Telemetry:
                         exporter_fully_qualified_name = _METRICS_EXPORTER_MAPPING.get(exporter_type, exporter_type)
                         exporter_module_name, exporter_class_name = exporter_fully_qualified_name.rsplit(".", 1)
                         cls = utils.import_class(exporter_class_name, exporter_module_name)
-                        exporter_options = config["exporter"].get("options", {})
+                        exporter_options = config["exporter"].get("options", {}).copy()
                         exporter: sdk_metrics_export.MetricExporter = cls(**exporter_options)
 
                         reader_options = config.get("reader", {}).get("options", {})

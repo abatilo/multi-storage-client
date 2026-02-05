@@ -13,10 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import fcntl
 import logging
+import os
+import tempfile
 import time
-from typing import Any
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, Optional
 
+import hvac
 import requests
 
 logger = logging.getLogger(__name__)
@@ -39,6 +45,244 @@ class AccessTokenProvider:
 
     def get_token(self) -> Any:
         return None
+
+
+@dataclass
+class CertificatePaths:
+    """Paths to mTLS certificate files."""
+
+    client_certificate_file: str
+    client_key_file: str
+    certificate_file: str
+
+
+class CertificateProvider(ABC):
+    """Base class for certificate providers used in mTLS authentication."""
+
+    @abstractmethod
+    def get_certificates(self) -> CertificatePaths:
+        """
+        Fetch and return paths to mTLS certificate files.
+
+        :return: CertificatePaths containing paths to client cert, key, and CA cert.
+        :raises RuntimeError: If certificate fetching fails.
+        """
+        pass
+
+
+class VaultCertificateProvider(CertificateProvider):
+    """
+    Certificate provider that fetches mTLS certificates from HashiCorp Vault using AppRole authentication.
+
+    This provider authenticates to Vault using AppRole credentials, fetches mTLS
+    certificates, and stores them in a temporary location for use with OTLP exporters.
+    """
+
+    def __init__(
+        self,
+        vault_endpoint: str,
+        vault_namespace: str,
+        approle_id: str,
+        approle_secret: str,
+        mount_point: str = "secret",
+        secret_path: str = "certificates",
+        cert_key: str = "cert",
+        key_key: str = "key",
+        ca_key: str = "ca",
+    ):
+        """
+        Initialize the VaultCertificateProvider.
+
+        :param vault_endpoint: URL of the Vault server (e.g., "https://vault.example.com")
+        :param vault_namespace: Vault namespace (e.g., "my-namespace")
+        :param approle_id: AppRole role ID for authentication
+        :param approle_secret: AppRole secret ID for authentication
+        :param mount_point: KV secrets engine mount point (e.g., "secret")
+        :param secret_path: Path to the secret in Vault containing certificates.
+            Note: hvac internally concatenates this as "<mount_point>/data/<secret_path>"
+            when reading from KV v2 secrets engine.
+        :param cert_key: Key name for the client certificate in the secret
+        :param key_key: Key name for the client key in the secret
+        :param ca_key: Key name for the CA certificate in the secret
+        """
+        self._vault_endpoint = vault_endpoint
+        self._vault_namespace = vault_namespace
+        self._approle_id = approle_id
+        self._approle_secret = approle_secret
+        self._secret_path = secret_path
+        self._mount_point = mount_point
+        self._cert_key = cert_key
+        self._key_key = key_key
+        self._ca_key = ca_key
+        self._cached_paths: Optional[CertificatePaths] = None
+
+    def _get_cert_cache_dir(self) -> str:
+        """Get the directory path for caching certificates."""
+        return os.path.join(tempfile.gettempdir(), "msc", "observability", "mtls")
+
+    def _authenticate_to_vault(self) -> str:
+        """
+        Authenticate to Vault using AppRole and return the client token.
+
+        :return: Vault client token
+        :raises RuntimeError: If authentication fails
+        """
+        client = hvac.Client(url=self._vault_endpoint, namespace=self._vault_namespace)
+
+        retry_count = 0
+        last_error = None
+
+        while retry_count < MAX_RETRIES:
+            try:
+                login_response = client.auth.approle.login(
+                    role_id=self._approle_id,
+                    secret_id=self._approle_secret,
+                )
+
+                if login_response and "auth" in login_response and "client_token" in login_response["auth"]:
+                    return login_response["auth"]["client_token"]
+                else:
+                    raise RuntimeError("Invalid response from Vault AppRole login")
+
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                if retry_count < MAX_RETRIES:
+                    sleep_time = min(BACKOFF_FACTOR * (2**retry_count), 60)
+                    logger.debug(f"Vault auth attempt {retry_count} failed: {e}. Retrying in {sleep_time}s...")
+                    time.sleep(sleep_time)
+
+        raise RuntimeError(f"Failed to authenticate to Vault after {MAX_RETRIES} attempts: {last_error}")
+
+    def _fetch_certificates_from_vault(self, client_token: str) -> dict[str, str]:
+        """
+        Fetch certificates from Vault using the client token.
+
+        :param client_token: Vault client token from authentication
+        :return: Dictionary containing certificate data
+        :raises RuntimeError: If fetching certificates fails
+        """
+        client = hvac.Client(url=self._vault_endpoint, namespace=self._vault_namespace, token=client_token)
+
+        retry_count = 0
+        last_error = None
+
+        while retry_count < MAX_RETRIES:
+            try:
+                secret_response = client.secrets.kv.v2.read_secret_version(
+                    path=self._secret_path, mount_point=self._mount_point, raise_on_deleted_version=True
+                )
+
+                if secret_response and "data" in secret_response and "data" in secret_response["data"]:
+                    secret_data = secret_response["data"]["data"]
+                    required_keys = [self._cert_key, self._key_key, self._ca_key]
+
+                    for key in required_keys:
+                        if key not in secret_data:
+                            raise RuntimeError(f"Certificate key '{key}' not found in Vault secret")
+
+                    return {
+                        "cert": secret_data[self._cert_key],
+                        "key": secret_data[self._key_key],
+                        "ca": secret_data[self._ca_key],
+                    }
+                else:
+                    raise RuntimeError("Invalid response from Vault when reading secret")
+
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                if retry_count < MAX_RETRIES:
+                    sleep_time = min(BACKOFF_FACTOR * (2**retry_count), 60)
+                    logger.debug(f"Vault secret read attempt {retry_count} failed: {e}. Retrying in {sleep_time}s...")
+                    time.sleep(sleep_time)
+
+        raise RuntimeError(f"Failed to fetch certificates from Vault after {MAX_RETRIES} attempts: {last_error}")
+
+    def _get_cert_paths(self) -> CertificatePaths:
+        """Get the expected certificate file paths."""
+        cert_dir = self._get_cert_cache_dir()
+        return CertificatePaths(
+            client_certificate_file=os.path.join(cert_dir, "cert.crt"),
+            client_key_file=os.path.join(cert_dir, "key.key"),
+            certificate_file=os.path.join(cert_dir, "ca.crt"),
+        )
+
+    def _certificates_exist_on_disk(self) -> bool:
+        """Check if all certificate files exist on disk."""
+        paths = self._get_cert_paths()
+        return (
+            os.path.exists(paths.client_certificate_file)
+            and os.path.exists(paths.client_key_file)
+            and os.path.exists(paths.certificate_file)
+        )
+
+    def _write_certificates_to_disk(self, cert_data: dict[str, str]) -> CertificatePaths:
+        """
+        Write certificates to disk with appropriate permissions.
+
+        :param cert_data: Dictionary containing certificate data
+        :return: CertificatePaths with paths to written files
+        """
+        cert_dir = self._get_cert_cache_dir()
+        os.makedirs(cert_dir, mode=0o700, exist_ok=True)
+
+        paths = self._get_cert_paths()
+
+        with open(paths.client_certificate_file, "w") as f:
+            f.write(cert_data["cert"])
+        os.chmod(paths.client_certificate_file, 0o644)
+
+        with open(paths.client_key_file, "w") as f:
+            f.write(cert_data["key"])
+        os.chmod(paths.client_key_file, 0o600)
+
+        with open(paths.certificate_file, "w") as f:
+            f.write(cert_data["ca"])
+        os.chmod(paths.certificate_file, 0o644)
+
+        logger.debug(f"Certificates written to {cert_dir}")
+
+        return paths
+
+    def get_certificates(self) -> CertificatePaths:
+        """
+        Fetch and return paths to mTLS certificate files.
+
+        Uses file locking to ensure only one process fetches from Vault while others wait.
+        Certificates are cached on disk and reused across processes.
+
+        :return: CertificatePaths containing paths to client cert, key, and CA cert.
+        :raises RuntimeError: If certificate fetching or writing fails.
+        """
+        if self._cached_paths is not None:
+            return self._cached_paths
+
+        if self._certificates_exist_on_disk():
+            logger.debug("Using cached certificates from disk")
+            self._cached_paths = self._get_cert_paths()
+            return self._cached_paths
+
+        cert_dir = self._get_cert_cache_dir()
+        os.makedirs(cert_dir, mode=0o700, exist_ok=True)
+        lock_file = os.path.join(cert_dir, ".lock")
+
+        with open(lock_file, "w") as lock_fd:
+            logger.debug("Acquiring lock for certificate fetching")
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            try:
+                if self._certificates_exist_on_disk():
+                    logger.debug("Certificates already fetched by another process")
+                    self._cached_paths = self._get_cert_paths()
+                    return self._cached_paths
+
+                logger.info("Fetching certificates from Vault")
+                client_token = self._authenticate_to_vault()
+                cert_data = self._fetch_certificates_from_vault(client_token)
+                self._cached_paths = self._write_certificates_to_disk(cert_data)
+                return self._cached_paths
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
 
 class AzureAccessTokenProvider(AccessTokenProvider):
