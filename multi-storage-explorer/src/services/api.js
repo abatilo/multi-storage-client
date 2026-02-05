@@ -119,17 +119,15 @@ export const downloadFile = async (url) => {
   const response = await api.post('/api/files/download', { url }, {
     responseType: 'blob',
   });
-  
-  // Create a download link
-  const downloadUrl = window.URL.createObjectURL(new Blob([response.data]));
+  const filename = url.split('/').pop() || 'download';
+  const downloadUrl = window.URL.createObjectURL(response.data);
   const link = document.createElement('a');
   link.href = downloadUrl;
-  link.setAttribute('download', url.split('/').pop() || 'download');
+  link.setAttribute('download', filename);
   document.body.appendChild(link);
   link.click();
   link.remove();
   window.URL.revokeObjectURL(downloadUrl);
-  
   return { status: 'success', message: 'File downloaded' };
 };
 

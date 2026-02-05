@@ -34,15 +34,20 @@ const FilePreview = ({
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('properties');
 
-  // Load file info when modal opens
   useEffect(() => {
-    const fetchFileInfo = async () => {
-      setLoading(true);
+    if (!visible || !fileUrl) {
+      setPreviewData(null);
       setError(null);
+      setActiveTab('properties');
+      return;
+    }
 
+    setLoading(true);
+    setError(null);
+
+    const fetchFileInfo = async () => {
       try {
         const data = await getFileInfo(fileUrl);
-        // Transform ObjectMetadata to match expected format
         const fileInfo = {
           name: fileName,
           size: data.content_length || 0,
@@ -51,27 +56,19 @@ const FilePreview = ({
           content_type: data.content_type || 'application/octet-stream',
           etag: data.etag || null
         };
-        setPreviewData({ 
+        setPreviewData({
           file_info: fileInfo,
           custom_metadata: data.metadata || null
         });
       } catch (err) {
         const errorMsg = err.response?.data?.detail || 'Failed to load file info';
         setError(errorMsg);
-        message.error(errorMsg);
       } finally {
         setLoading(false);
       }
     };
 
-    if (visible && fileUrl) {
-      fetchFileInfo();
-    } else {
-      // Reset state when modal closes
-      setPreviewData(null);
-      setError(null);
-      setActiveTab('properties');
-    }
+    fetchFileInfo();
   }, [visible, fileUrl, fileName]);
 
   const handleDownload = async () => {

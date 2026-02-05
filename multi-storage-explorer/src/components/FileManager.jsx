@@ -98,10 +98,10 @@ const FileManager = ({ profiles }) => {
         return; // This response is stale, ignore it
       }
       
-      // Transform files to table data format
+      const normalizeName = (raw) => (raw || '').replace(/\/+$/, '').replace(/\/+/g, '/');
       const transformedFiles = response.items.map(item => ({
         key: item.key || item.name,
-        name: item.name,
+        name: normalizeName(item.name),
         isDir: item.is_directory || item.type === 'directory',
         size: item.size || 0,
         modDate: item.last_modified || new Date().toISOString(),
