@@ -19,6 +19,8 @@ from datetime import datetime
 from typing import IO, Optional, Union
 from unittest.mock import MagicMock, Mock
 
+import pytest
+
 from multistorageclient.providers.base import BaseStorageProvider
 from multistorageclient.telemetry import Telemetry
 from multistorageclient.types import ObjectMetadata, Range
@@ -87,6 +89,14 @@ def test_list_objects_with_prefix_in_base_path():
 
     for m in response:
         assert m.key.startswith("dir")
+
+
+def test_list_objects_with_empty_base_path():
+    """Test that list_objects raises ValueError when base_path is empty."""
+    provider = MockBaseStorageProvider(base_path="", provider_name="mock")
+
+    with pytest.raises(ValueError, match="The base_path cannot be empty when calling list_objects"):
+        list(provider.list_objects(path=""))
 
 
 def test_async_metrics_disabled_by_default():

@@ -310,9 +310,8 @@ async def list_files(request: ListRequest):
         raise HTTPException(status_code=404, detail=f"Directory not found: {request.url}")
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=f"Permission denied: {str(e)}")
-    except Exception:
-        # Re-raise to let global exception handler provide user-friendly message
-        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
 @app.post("/api/files/info")
@@ -349,9 +348,8 @@ async def get_file_info(request: InfoRequest):
         raise HTTPException(status_code=404, detail=f"File not found: {request.url}")
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=f"Permission denied: {str(e)}")
-    except Exception:
-        # Re-raise to let global exception handler provide user-friendly message
-        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
 @app.post("/api/files/preview")

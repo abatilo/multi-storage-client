@@ -540,6 +540,13 @@ class BaseStorageProvider(StorageProvider):
 
         # Prepend the base path to all the paths, the _list_objects method operates on full paths.
         path = self._prepend_base_path(path)
+
+        # Cannot list objects from an empty base path.
+        if path.strip() == "":
+            raise ValueError(
+                "The base_path cannot be empty when calling list_objects. Please provide a valid base_path in your configuration file."
+            )
+
         start_after = self._prepend_base_path(start_after) if start_after else None
         end_at = self._prepend_base_path(end_at) if end_at else None
 
