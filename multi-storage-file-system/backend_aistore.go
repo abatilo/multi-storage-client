@@ -78,7 +78,7 @@ func (backend *backendStruct) setupAIStoreContext() (err error) {
 	// Create base parameters for AIStore API
 	// Note: AIStore SDK handles URL scheme construction internally based on the endpoint format
 	if backendAIStore.endpoint == "" {
-		err = fmt.Errorf("AIStore endpoint is empty - check AIS_ENDPOINT environment variable")
+		err = errors.New("AIStore endpoint is empty - check AIS_ENDPOINT environment variable")
 		return
 	}
 	baseParams := api.BaseParams{

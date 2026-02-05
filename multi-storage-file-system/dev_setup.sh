@@ -5,7 +5,7 @@ SCRIPT_NAME="$(basename "$0")"
 
 usage() {
     cat <<EOF
-Usage: ${SCRIPT_NAME} [{ais|aisMinio|minio}"]
+Usage: ${SCRIPT_NAME} [{ais|aisMinio|garage|gcs|minio}]
 
 Populate the "dev" bucket in the specified object store (defaults to minio) with contents of the current directory tree.
 
