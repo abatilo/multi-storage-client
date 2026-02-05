@@ -199,16 +199,19 @@ def _sync_worker_process(
     batch is submitted to the thread pool for concurrent execution.
 
     The thread pool size is bounded by num_worker_threads, ensuring controlled
-    parallelism. Futures are tracked to ensure all operations complete before shutdown.
+    parallelism. Backpressure is applied by limiting pending futures to twice the
+    number of worker threads, preventing unbounded queue growth while keeping all
+    threads saturated with minimal idle time.
 
     Exceptions that occur during file operations are caught, packaged as ErrorInfo
     objects, and sent to the error_queue for centralized error handling. The shutdown_event
     is checked periodically to enable graceful shutdown when errors occur elsewhere.
     """
     worker_id = f"process-{os.getpid()}"
+    max_pending_futures = num_worker_threads * 2
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_worker_threads) as executor:
-        futures = []
+        futures: list[concurrent.futures.Future] = []
 
         while not shutdown_event.is_set():
             batch = file_queue.get()
@@ -220,6 +223,11 @@ def _sync_worker_process(
                 if shutdown_event.is_set():
                     logger.debug(f"Worker {worker_id}: Shutdown event detected during batch processing, exiting")
                     break
+
+                # Backpressure: wait if at capacity before submitting new work
+                while len(futures) >= max_pending_futures:
+                    _, not_done = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
+                    futures = list(not_done)
 
                 future = executor.submit(
                     _process_single_sync_operation,
@@ -234,10 +242,6 @@ def _sync_worker_process(
                     error_queue,
                 )
                 futures.append(future)
-
-                logger.debug(f"Worker {worker_id}: Waiting for {len(futures)} operations to complete")
-                concurrent.futures.wait(futures)
-                futures.clear()
         else:
             logger.debug(f"Worker {worker_id}: Shutdown event detected, exiting")
 
