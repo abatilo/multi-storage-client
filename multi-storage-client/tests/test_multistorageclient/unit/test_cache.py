@@ -32,7 +32,7 @@ from multistorageclient.caching.cache_config import (
     EvictionPolicyConfig,
 )
 from multistorageclient.config import StorageClientConfig
-from multistorageclient.types import Range
+from multistorageclient.types import Range, SourceVersionCheckMode
 from test_multistorageclient.unit.utils.tempdatastore import create_test_data
 
 
@@ -968,3 +968,84 @@ def test_concurrent_chunk_creation_with_locking():
             f for f in os.listdir(file_dir) if f.startswith(f".{base_name}#chunk0") and not f.endswith(".lock")
         ]
         assert len(chunk_files) == 1, f"Expected 1 chunk0 file, found {len(chunk_files)}"
+
+
+@pytest.mark.parametrize(
+    argnames=["temp_data_store_type"],
+    argvalues=[
+        [tempdatastore.TemporaryAWSS3Bucket],
+    ],
+)
+def test_cache_first_no_head_request_on_hit(temp_data_store_type, tmpdir):
+    """
+    Test that cache-first approach avoids HEAD requests on cache hit.
+
+    When check_source_version=False and the file is in cache, open() should
+    retrieve the file from cache without making any HEAD requests to the remote
+    storage. This optimization is critical for data loaders that frequently
+    access cached files.
+    """
+    with temp_data_store_type() as temp_data_store:
+        profile = "data"
+        file_path = "test_file.txt"
+        file_content = b"test data for cache-first optimization"
+
+        profile_config = temp_data_store.profile_config_dict()
+        profile_config["caching_enabled"] = True
+
+        config_dict = {
+            "profiles": {profile: profile_config},
+            "cache": {
+                "size": "10M",
+                "cache_line_size": "1M",
+                "location": str(tmpdir),
+                "check_source_version": False,
+            },
+        }
+
+        storage_client = StorageClient(config=StorageClientConfig.from_dict(config_dict, profile=profile))
+
+        head_call_count = 0
+        original_get_metadata = storage_client._storage_provider.get_object_metadata  # type: ignore
+
+        def counting_get_object_metadata(path: str, strict: bool = True):
+            nonlocal head_call_count
+            head_call_count += 1
+            return original_get_metadata(path, strict=strict)
+
+        storage_client._storage_provider.get_object_metadata = counting_get_object_metadata  # type: ignore
+
+        # Upload a file
+        with storage_client.open(path=file_path, mode="wb") as f:
+            f.write(file_content)
+
+        # First read - populates cache (will do HEAD request for metadata)
+        with storage_client.open(path=file_path, mode="rb") as f:
+            content = f.read()
+            assert content == file_content
+
+        assert head_call_count == 1, "First read should trigger exactly one HEAD request"
+
+        # Verify file is in cache
+        assert storage_client._cache_manager is not None
+        assert storage_client._cache_manager.contains(file_path, check_source_version=SourceVersionCheckMode.DISABLE)
+
+        # Second read from cache - with check_source_version=False, this should
+        # use cache-first approach and avoid HEAD request
+        with storage_client.open(path=file_path, mode="rb", check_source_version=SourceVersionCheckMode.DISABLE) as f:
+            content = f.read()
+            assert content == file_content
+
+        # Also test read() method for both full and range reads
+        content = storage_client.read(file_path, check_source_version=SourceVersionCheckMode.DISABLE)
+        assert content == file_content
+
+        # Test range read
+        range_content = storage_client.read(
+            file_path, byte_range=Range(0, 10), check_source_version=SourceVersionCheckMode.DISABLE
+        )
+        assert range_content == file_content[:10]
+
+        assert head_call_count == 1, (
+            f"No additional HEAD requests should be made for cache-first reads; expected 1 total, got {head_call_count}"
+        )

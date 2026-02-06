@@ -307,7 +307,14 @@ class SingleStorageClient(AbstractStorageClient):
                     return self._storage_provider.get_object(path, byte_range=byte_range)
             else:
                 # Full file read with cache
-                source_version = self._get_source_version(path)
+                # Only fetch source version if check_source_version is enabled
+                source_version = None
+                if check_source_version == SourceVersionCheckMode.ENABLE:
+                    source_version = self._get_source_version(path)
+                elif check_source_version == SourceVersionCheckMode.INHERIT:
+                    if self._cache_manager.check_source_version():
+                        source_version = self._get_source_version(path)
+
                 data = self._cache_manager.read(path, source_version)
                 if data is None:
                     if self._replica_manager:

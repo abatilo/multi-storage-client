@@ -250,18 +250,46 @@ class ObjectFile(IOBase, IO):
         if self._cache_manager:
             # Use local file as the fileobj
             if self._mode in ("r", "rb"):
-                # Read - common setup for both prefetch and non-prefetch
-                self._object_metadata = self._storage_client.info(self._remote_path)
                 self._download_complete = threading.Event()
 
-                # RemoteFileReader only supports binary mode, so force prefetch for text mode
-                if self._prefetch_file or self._mode == "r":
-                    # Use threaded download for prefetch
-                    self._download_thread = threading.Thread(target=self._download_file)
-                    self._download_thread.start()
+                # Cache-first optimization: if version checking is disabled and file is cached,
+                # open directly from cache without HEAD request
+                need_version_check = self._check_source_version == SourceVersionCheckMode.ENABLE or (
+                    self._check_source_version == SourceVersionCheckMode.INHERIT
+                    and self._cache_manager.check_source_version()
+                )
+
+                if not need_version_check and self._cache_manager.contains(
+                    self._remote_path, check_source_version=SourceVersionCheckMode.DISABLE
+                ):
+                    # Cache hit with no version check - open directly from cache
+                    cached_file = self._cache_manager.open(
+                        self._remote_path, mode="rb", check_source_version=SourceVersionCheckMode.DISABLE
+                    )
+                    if cached_file is not None:
+                        self._file = cached_file
+                        self._open_files.append(self._file)
+                        self._download_complete.set()
+                    else:
+                        # Unexpected cache failure - fetch metadata and proceed with download
+                        self._object_metadata = self._storage_client.info(self._remote_path)
+                        if self._prefetch_file or self._mode == "r":
+                            self._download_thread = threading.Thread(target=self._download_file)
+                            self._download_thread.start()
+                        else:
+                            self._open_large_file()
                 else:
-                    # Use RemoteFileReader directly for non-prefetch (binary mode only)
-                    self._open_large_file()
+                    # Cache miss or version check needed - fetch metadata and proceed with download
+                    self._object_metadata = self._storage_client.info(self._remote_path)
+
+                    # RemoteFileReader only supports binary mode, so force prefetch for text mode
+                    if self._prefetch_file or self._mode == "r":
+                        # Use threaded download for prefetch
+                        self._download_thread = threading.Thread(target=self._download_file)
+                        self._download_thread.start()
+                    else:
+                        # Use RemoteFileReader directly for non-prefetch (binary mode only)
+                        self._open_large_file()
             else:
                 # Write or append
                 self._create_fileobj()
