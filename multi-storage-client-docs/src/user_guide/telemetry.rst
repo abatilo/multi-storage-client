@@ -93,6 +93,30 @@ If the default telemetry provider creation doesn't behave as desired, you can ma
    # Use an MSC shortcut to create a storage client for a profile and open an object/file.
    multistorageclient.open("msc://data/file.txt")
 
+**************
+Authentication
+**************
+
+mTLS
+====
+
+MSC supports mTLS (mutual TLS) authentication for secure metric publishing. mTLS requires client certificates to establish secure connections with the telemetry endpoint.
+
+The ``OTLPMetricExporter`` (v1.32.1+) supports mTLS natively via ``client_certificate_file``, ``client_key_file``, and ``certificate_file`` parameters. This approach expects pre-installed certificates on the system.
+
+.. code-block:: yaml
+   :caption: Example configuration with pre-installed mTLS certificates.
+
+   opentelemetry:
+     metrics:
+       exporter:
+         type: otlp
+         options:
+           endpoint: "https://otlp.example.com/v1/metrics"
+           client_certificate_file: /path/to/client.crt
+           client_key_file: /path/to/client.key
+           certificate_file: /path/to/ca.crt
+
 *******
 Metrics
 *******

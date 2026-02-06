@@ -1195,10 +1195,10 @@ The following exporter types are provided:
 
 .. note::
 
-   These need additional dependencies to be present (provided as an extra dependencies).
+   These need additional dependencies to be present (provided as extra dependencies).
 
 .. code-block:: yaml
-   :caption: Example configuration.
+   :caption: Example configuration with OTLP exporter.
 
    opentelemetry:
      metrics:
@@ -1207,6 +1207,19 @@ The following exporter types are provided:
          options:
            # OpenTelemetry Collector default local HTTP endpoint.
            endpoint: http://localhost:4318/v1/metrics
+
+.. code-block:: yaml
+   :caption: Example configuration with OTLP exporter using mTLS.
+
+   opentelemetry:
+     metrics:
+       exporter:
+         type: otlp
+         options:
+           endpoint: "https://otlp.example.com/v1/metrics"
+           client_certificate_file: /path/to/client.crt
+           client_key_file: /path/to/client.key
+           certificate_file: /path/to/ca.crt
 
 ************
 Path Mapping
