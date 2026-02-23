@@ -153,6 +153,7 @@ class S3StorageProvider(BaseStorageProvider):
             connect_timeout=kwargs.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT),
             read_timeout=kwargs.get("read_timeout", DEFAULT_READ_TIMEOUT),
             retries=kwargs.get("retries"),
+            s3=kwargs.get("s3"),
         )
         self._transfer_config = TransferConfig(
             multipart_threshold=int(kwargs.get("multipart_threshold", MULTIPART_THRESHOLD)),
@@ -195,6 +196,7 @@ class S3StorageProvider(BaseStorageProvider):
         connect_timeout: Union[float, int, None] = None,
         read_timeout: Union[float, int, None] = None,
         retries: Optional[dict[str, Any]] = None,
+        s3: Optional[dict[str, Any]] = None,
     ):
         """
         Creates and configures the boto3 S3 client, using refreshable credentials if possible.
@@ -205,6 +207,7 @@ class S3StorageProvider(BaseStorageProvider):
         :param connect_timeout: The time in seconds till a timeout exception is thrown when attempting to make a connection.
         :param read_timeout: The time in seconds till a timeout exception is thrown when attempting to read from a connection.
         :param retries: A dictionary for configuration related to retry behavior.
+        :param s3: A dictionary of S3-specific configuration options passed directly to ``botocore.config.Config(s3=...)``. Supported keys include ``addressing_style`` (``"virtual"`` or ``"path"``), ``payload_signing_enabled``, ``use_accelerate_endpoint``, and ``use_dualstack_endpoint``. See `botocore Config reference <https://botocore.amazonaws.com/v1/documentation/api/latest/reference/config.html>`_.
 
         :return: The configured S3 client.
         """
@@ -217,6 +220,7 @@ class S3StorageProvider(BaseStorageProvider):
                 retries=retries or {"mode": "standard"},
                 request_checksum_calculation=request_checksum_calculation,
                 response_checksum_validation=response_checksum_validation,
+                s3=s3,
             ),
         }
 
